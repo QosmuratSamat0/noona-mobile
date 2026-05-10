@@ -8,6 +8,7 @@ import (
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/app"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/config"
 	slogpretty "github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/logger"
+	"github.com/joho/godotenv"
 )
 
 const (
@@ -25,8 +26,13 @@ const (
 // @name Authorization
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		slog.Warn("No .env file found")
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
+		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 
