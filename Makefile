@@ -6,13 +6,13 @@ DB_DSN=postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/$(POSTGRE
 .PHONY: migrate migrate-down migrate-status dev build
 
 dev:
-	go run backend/cmd/api/main.go
+	cd backend && go run cmd/api/main.go
 
 build:
-	go build -o backend/bin/main backend/cmd/api/main.go
+	cd backend && go build -o bin/main cmd/api/main.go
 
 migrate:
-	goose -dir backend/migrations postgres "$(DB_DSN)" up
+	cd backend && goose -dir migrations postgres "$(DB_DSN)" up
 
 migrate-down:
 	goose -dir backend/migrations postgres "$(DB_DSN)" down
