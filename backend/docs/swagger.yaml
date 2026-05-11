@@ -1,10 +1,30 @@
 basePath: /api/v1
 definitions:
+  http.ActivityResponse:
+    properties:
+      daily_stats:
+        items:
+          $ref: '#/definitions/http.DailyStatResponse'
+        type: array
+      streak:
+        $ref: '#/definitions/http.StreakResponse'
+    type: object
   http.AuthTokensResponse:
     properties:
       access_token:
         type: string
       refresh_token:
+        type: string
+    type: object
+  http.CorrectionResponse:
+    properties:
+      corrected_text:
+        type: string
+      explanation:
+        type: string
+      id:
+        type: string
+      transcript_id:
         type: string
     type: object
   http.CreateUserRequest:
@@ -17,6 +37,13 @@ definitions:
         type: string
       role:
         type: string
+    type: object
+  http.DailyStatResponse:
+    properties:
+      date:
+        type: string
+      session_count:
+        type: integer
     type: object
   http.LoginRequest:
     properties:
@@ -41,6 +68,21 @@ definitions:
       role:
         type: string
       session_id:
+        type: string
+    type: object
+  http.MistakeResponse:
+    properties:
+      created_at:
+        type: string
+      fixed:
+        type: string
+      id:
+        type: string
+      original:
+        type: string
+      type:
+        type: string
+      user_id:
         type: string
     type: object
   http.RefreshRequest:
@@ -70,6 +112,15 @@ definitions:
         type: string
       user_id:
         type: string
+    type: object
+  http.StreakResponse:
+    properties:
+      current_streak:
+        type: integer
+      last_activity_date:
+        type: string
+      longest_streak:
+        type: integer
     type: object
   http.UpdateUserRequest:
     properties:
@@ -108,6 +159,31 @@ info:
   title: Smart Campus API
   version: "1.0"
 paths:
+  /activity/me:
+    get:
+      consumes:
+      - application/json
+      description: Returns the current streak and daily activity history
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.ActivityResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Get user activity stats and streak
+      tags:
+      - activity
   /auth/login:
     post:
       consumes:
@@ -244,6 +320,66 @@ paths:
       summary: Register a new user
       tags:
       - auth
+  /linguistic/messages/{messageID}/corrections:
+    get:
+      consumes:
+      - application/json
+      description: Get all corrections related to a specific chat message
+      parameters:
+      - description: Message ID
+        in: path
+        name: messageID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/http.CorrectionResponse'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Get corrections for a message
+      tags:
+      - linguistic
+  /linguistic/mistakes:
+    get:
+      consumes:
+      - application/json
+      description: List all recorded mistakes for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/http.MistakeResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Get user mistakes
+      tags:
+      - linguistic
   /sessions:
     get:
       consumes:
