@@ -17,5 +17,8 @@ func NewAuthModule(authUC AuthUseCase) *AuthModule {
 func (m *AuthModule) RegisterRoutes(r chi.Router) {
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/register", m.authHandler.Register)
+		r.Post("/login", m.authHandler.Login)
+		r.Post("/logout", m.authHandler.Logout)
+		r.Post("/refresh", m.authHandler.Refresh)
 	})
 }

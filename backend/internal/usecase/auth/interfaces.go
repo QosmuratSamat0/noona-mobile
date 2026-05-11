@@ -16,5 +16,6 @@ type TokenRepo interface {
 
 type UserRepo interface {
 	GetUserByEmail(ctx context.Context, email string) (*userDomain.User, error)
+	GetUserByID(ctx context.Context, id string) (*userDomain.User, error)
 	CreateUser(ctx context.Context, user *userDomain.User) error
 }

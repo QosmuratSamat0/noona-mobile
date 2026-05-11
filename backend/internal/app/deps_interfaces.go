@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	chatDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	model "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/user"
 	authUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/auth"
 	userUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/user"
@@ -18,4 +19,14 @@ type UserUseCase interface {
 
 type AuthUseCase interface {
 	Register(ctx context.Context, input authUseCase.RegisterInput) error
+	Login(ctx context.Context, input authUseCase.LoginInput) (*authUseCase.AuthTokens, error)
+	Refresh(ctx context.Context, refreshToken string) (*authUseCase.AuthTokens, error)
+	Logout(ctx context.Context, refreshToken string) error
+}
+
+type ChatUseCase interface {
+	CreateSession(ctx context.Context, userID string) (*chatDomain.Session, error)
+	GetUserSessions(ctx context.Context, userID string) ([]*chatDomain.Session, error)
+	SaveMessage(ctx context.Context, sessionID string, role chatDomain.Role, content string) (*chatDomain.Message, error)
+	GetSessionMessages(ctx context.Context, sessionID string) ([]*chatDomain.Message, error)
 }
