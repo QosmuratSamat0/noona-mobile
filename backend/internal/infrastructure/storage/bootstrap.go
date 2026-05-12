@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/QosmuratSamat0/Noona-AI/backend/pkg/storage"
+	pkgStorage "github.com/QosmuratSamat0/Noona-AI/backend/pkg/storage"
 )
 
 // InitStorage ensures all application-specific buckets exist in MinIO.
-func InitStorage(mc *storage.MinioClient) error {
+func InitStorage(mc *pkgStorage.MinioClient) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
