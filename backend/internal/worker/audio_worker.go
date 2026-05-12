@@ -56,8 +56,9 @@ func (w *AudioWorker) Stop() {
 }
 
 const (
-	workerMaxBackoff = 30 * time.Second
-	workerBaseJitter = time.Second
+	workerMaxBackoff      = 30 * time.Second
+	workerBaseJitter      = time.Second
+	workerMaxRetryExponent = 5 // caps exponential backoff at 2^5 = 32 seconds before the 30s ceiling
 )
 
 func (w *AudioWorker) worker(id int) {
@@ -82,8 +83,8 @@ func (w *AudioWorker) worker(id int) {
 					continue
 				}
 				consecutiveErrors++
-				backoff := min(time.Duration(consecutiveErrors)*time.Second, workerMaxBackoff)
-				jitter := time.Duration(rand.Int64N(int64(workerBaseJitter) + 1))
+				backoff := min(time.Duration(1<<uint(min(consecutiveErrors-1, workerMaxRetryExponent)))*time.Second, workerMaxBackoff)
+				jitter := time.Duration(rand.Int64N(int64(workerBaseJitter)))
 				slog.Error("error moving job from redis", "error", err, "worker_id", id, "backoff", backoff+jitter)
 				select {
 				case <-time.After(backoff + jitter):
