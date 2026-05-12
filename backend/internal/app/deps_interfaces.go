@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 
 	activityDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/activity"
 	chatDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
@@ -45,4 +46,8 @@ type LinguisticUseCase interface {
 type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
 	GetActivity(ctx context.Context, userID string) (*activityDomain.Streak, []*activityDomain.DailyStat, error)
+}
+
+type AudioUseCase interface {
+	UploadAudio(ctx context.Context, userID string, file io.Reader, fileSize int64, contentType, ext string) (string, error)
 }

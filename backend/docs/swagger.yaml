@@ -131,6 +131,11 @@ definitions:
       role:
         type: string
     type: object
+  http.UploadResponse:
+    properties:
+      job_id:
+        type: string
+    type: object
   http.UserResponse:
     properties:
       created_at:
@@ -184,6 +189,45 @@ paths:
       summary: Get user activity stats and streak
       tags:
       - activity
+  /audio/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload audio file, save to MinIO and create job
+      parameters:
+      - description: Audio file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/http.UploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Upload audio file
+      tags:
+      - audio
   /auth/login:
     post:
       consumes:

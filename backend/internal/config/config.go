@@ -7,16 +7,21 @@ import (
 )
 
 type Config struct {
-	Env         string `env:"ENV" envDefault:"local"`
-	DatabaseURL string `env:"DATABASE_URL"`
-	JWTSecret   string `env:"JWT_SECRET"`
-	HTTPServer  HTTPServer
+	Env                  string `env:"ENV" envDefault:"local"`
+	DatabaseURL          string `env:"DATABASE_URL"`
+	JWTSecret            string `env:"JWT_SECRET"`
+	RedisURL             string `env:"REDIS_URL" envDefault:"localhost:6379"`
+	MinioEndpoint        string `env:"MINIO_ENDPOINT" envDefault:"localhost:9000"`
+	MinioAccessKeyID     string `env:"MINIO_ACCESS_KEY_ID" envDefault:"minioadmin"`
+	MinioSecretAccessKey string `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
+	MinioUseSSL          bool   `env:"MINIO_USE_SSL" envDefault:"false"`
+	HTTPServer           HTTPServer
 }
 
 type HTTPServer struct {
 	Address     string        `env:"ADDRESS" envDefault:"0.0.0.0:8080"`
-	Timeout     time.Duration `env:"TIMEOUT" envDefault:"15"`
-	IdleTimeout time.Duration `env:"IDLE_TIMEOUT" envDefault:"60"`
+	Timeout     time.Duration `env:"TIMEOUT" envDefault:"15s"`
+	IdleTimeout time.Duration `env:"IDLE_TIMEOUT" envDefault:"60s"`
 }
 
 func Load() (*Config, error) {
