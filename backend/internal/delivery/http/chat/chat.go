@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/middleware"
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	resp "github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/api/response"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 )
@@ -17,8 +19,8 @@ import (
 type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*domain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error)
-	SaveMessage(ctx context.Context, sessionID string, role domain.Role, content string) (*domain.Message, error)
-	GetSessionMessages(ctx context.Context, sessionID string) ([]*domain.Message, error)
+	SaveMessage(ctx context.Context, userID string, sessionID string, role domain.Role, content string) (*domain.Message, error)
+	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*domain.Message, error)
 }
 
 type ChatHandler struct {
@@ -132,6 +134,13 @@ func (h *ChatHandler) GetUserSessions(w http.ResponseWriter, r *http.Request) {
 // @Security BearerAuth
 // @Router /sessions/{sessionID}/messages [get]
 func (h *ChatHandler) GetSessionMessages(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		render.Status(r, http.StatusUnauthorized)
+		render.JSON(w, r, resp.Error("unauthorized"))
+		return
+	}
+
 	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
 		render.Status(r, http.StatusBadRequest)
@@ -139,8 +148,18 @@ func (h *ChatHandler) GetSessionMessages(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	messages, err := h.chatUC.GetSessionMessages(r.Context(), sessionID)
+	messages, err := h.chatUC.GetSessionMessages(r.Context(), user.ID, sessionID)
 	if err != nil {
+		if errors.Is(err, errs.ErrSessionAccessDenied) {
+			render.Status(r, http.StatusForbidden)
+			render.JSON(w, r, resp.Error("access denied"))
+			return
+		}
+		if errors.Is(err, errs.ErrSessionNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, resp.Error("session not found"))
+			return
+		}
 		slog.Error("failed to get messages", "error", err)
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, resp.Error("internal error"))
@@ -179,6 +198,13 @@ type SendMessageRequest struct {
 // @Security BearerAuth
 // @Router /sessions/{sessionID}/messages [post]
 func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		render.Status(r, http.StatusUnauthorized)
+		render.JSON(w, r, resp.Error("unauthorized"))
+		return
+	}
+
 	sessionID := chi.URLParam(r, "sessionID")
 	if sessionID == "" {
 		render.Status(r, http.StatusBadRequest)
@@ -194,8 +220,18 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save user message
-	msg, err := h.chatUC.SaveMessage(r.Context(), sessionID, domain.RoleUser, req.Content)
+	msg, err := h.chatUC.SaveMessage(r.Context(), user.ID, sessionID, domain.RoleUser, req.Content)
 	if err != nil {
+		if errors.Is(err, errs.ErrSessionAccessDenied) {
+			render.Status(r, http.StatusForbidden)
+			render.JSON(w, r, resp.Error("access denied"))
+			return
+		}
+		if errors.Is(err, errs.ErrSessionNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, resp.Error("session not found"))
+			return
+		}
 		slog.Error("failed to save message", "error", err)
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, resp.Error("internal error"))

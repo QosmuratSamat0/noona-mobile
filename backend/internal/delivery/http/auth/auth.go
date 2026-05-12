@@ -162,6 +162,13 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.RefreshToken == "" {
+		log.Error("missing refresh token")
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, resp.Error("refresh_token is required"))
+		return
+	}
+
 	tokens, err := h.authUC.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
 		log.Error("failed to refresh tokens", "error", err)
@@ -199,6 +206,13 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.RefreshToken == "" {
+		log.Error("missing refresh token")
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, resp.Error("refresh_token is required"))
+		return
+	}
+
 	err := h.authUC.Logout(r.Context(), req.RefreshToken)
 	if err != nil {
 		log.Error("failed to logout", "error", err)
@@ -220,7 +234,8 @@ func handleAuthError(w http.ResponseWriter, r *http.Request, err error) {
 		render.JSON(w, r, resp.Error("email already exists"))
 
 	case errors.Is(err, errs.ErrUnauthorized),
-		errors.Is(err, errs.ErrInvalidCredentials):
+		errors.Is(err, errs.ErrInvalidCredentials),
+		errors.Is(err, errs.ErrNotFound):
 		render.Status(r, http.StatusUnauthorized)
 		render.JSON(w, r, resp.Error("unauthorized"))
 

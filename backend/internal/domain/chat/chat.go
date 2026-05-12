@@ -1,6 +1,8 @@
 package chat
 
-import "time"
+import (
+	"time"
+)
 
 type Role string
 
