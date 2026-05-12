@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	wsHub "github.com/QosmuratSamat0/Noona-AI/backend/internal/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -50,7 +51,9 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("failed to connect to redis: %w", err)
 	}
 
-	deps, err := BuildDeps(dbpool, minioClient, redisClient, cfg)
+	hub := wsHub.NewHub()
+
+	deps, err := BuildDeps(dbpool, minioClient, redisClient, hub, cfg)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to build deps: %w", err)

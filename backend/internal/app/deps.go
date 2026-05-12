@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	httpSwagger "github.com/swaggo/http-swagger"
 
+	wsHub "github.com/QosmuratSamat0/Noona-AI/backend/internal/chat"
 	activityModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/activity"
 	audioModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/audio"
 	authModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/auth"
@@ -44,9 +45,10 @@ type Deps struct {
 	LinguisticUseCase LinguisticUseCase
 	ActivityUseCase   ActivityUseCase
 	AudioUseCase      AudioUseCase
+	Hub               *wsHub.Hub
 }
 
-func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, cfg *config.Config) (*Deps, error) {
+func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, hub *wsHub.Hub, cfg *config.Config) (*Deps, error) {
 	// Repositories
 	userRepo := userRepo.New(db)
 	authRepo := authRepo.New(db)
@@ -74,12 +76,13 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		LinguisticUseCase: linguisticUseCase,
 		ActivityUseCase:   activityUseCase,
 		AudioUseCase:      audioUseCase,
+		Hub:               hub,
 	}, nil
 }
 
 func BuildHTTPModules(router chi.Router, deps *Deps) {
 	userMod := userModule.NewUserModule(deps.UserUseCase)
-	chatMod := chatModule.NewChatModule(deps.ChatUseCase)
+	chatMod := chatModule.NewChatModule(deps.ChatUseCase, deps.Hub)
 	linguisticMod := linguisticModule.NewLinguisticModule(deps.LinguisticUseCase)
 	activityMod := activityModule.NewActivityModule(deps.ActivityUseCase)
 	audioMod := audioModule.NewAudioModule(deps.AudioUseCase)
