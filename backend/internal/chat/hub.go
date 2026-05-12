@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -70,4 +71,26 @@ func (h *Hub) SendToUser(userID string, msg Message) {
 	default:
 		slog.Warn("channel full, dropping message", "user_id", userID)
 	}
+}
+
+func (h *Hub) PushToUser(ctx context.Context, userID string, payload any) error {
+	msg := Message{
+		UserID: userID,
+	}
+
+	if m, ok := payload.(map[string]any); ok {
+		if t, ok := m["type"].(string); ok {
+			msg.Type = t
+		}
+		if d, ok := m["data"]; ok {
+			msg.Data = d
+		} else {
+			msg.Data = payload
+		}
+	} else {
+		msg.Data = payload
+	}
+
+	h.SendToUser(userID, msg)
+	return nil
 }

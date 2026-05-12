@@ -15,6 +15,11 @@ type Config struct {
 	MinioAccessKeyID     string `env:"MINIO_ACCESS_KEY_ID" envDefault:"minioadmin"`
 	MinioSecretAccessKey string `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
 	MinioUseSSL          bool   `env:"MINIO_USE_SSL" envDefault:"false"`
+	STTServiceURL     string        `env:"STT_SERVICE_URL" envDefault:"http://localhost:8001"`
+	STTGRPCAddr       string        `env:"STT_GRPC_ADDR" envDefault:"localhost:50051"`
+	STTRequestTimeout time.Duration `env:"STT_REQUEST_TIMEOUT" envDefault:"120s"`
+	AudioWorkerQueue     string `env:"AUDIO_WORKER_QUEUE" envDefault:"audio:jobs"`
+	AudioWorkerCount     int    `env:"AUDIO_WORKER_COUNT" envDefault:"2"`
 	HTTPServer           HTTPServer
 }
 

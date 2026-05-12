@@ -29,6 +29,7 @@ export const Login = () => {
   };
 
   return (
+    <div className="auth-page-wrapper">
     <div className="auth-container">
       <div className="auth-header">
         <div className="auth-logo">
@@ -91,6 +92,7 @@ export const Login = () => {
       <div className="footer-link">
         <a href="#forgot">Forgot password?</a>
       </div>
+    </div>
     </div>
   );
 };
