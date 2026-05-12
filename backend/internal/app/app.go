@@ -13,12 +13,12 @@ import (
 
 	wsHub "github.com/QosmuratSamat0/Noona-AI/backend/internal/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/config"
+	infraStorage "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/storage"
+	"github.com/QosmuratSamat0/Noona-AI/backend/pkg/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -36,13 +36,16 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 
 	logger.Info("Database connected")
 
-	minioClient, err := minio.New(cfg.MinioEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.MinioAccessKeyID, cfg.MinioSecretAccessKey, ""),
-		Secure: cfg.MinioUseSSL,
-	})
+	minioStorage, err := storage.NewMinioClient(cfg.MinioEndpoint, cfg.MinioAccessKeyID, cfg.MinioSecretAccessKey, cfg.MinioUseSSL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize minio client: %w", err)
 	}
+
+	if err := infraStorage.InitStorage(minioStorage); err != nil {
+		return nil, fmt.Errorf("failed to bootstrap storage buckets: %w", err)
+	}
+
+	minioClient := minioStorage.Client()
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr: cfg.RedisURL,
