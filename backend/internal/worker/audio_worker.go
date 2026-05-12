@@ -146,6 +146,7 @@ func (w *AudioWorker) removeFromInProgress(ctx context.Context, inProgressQueue,
 				slog.Error("context canceled during cleanup retry", "queue", inProgressQueue, "reason", reason)
 				return
 			}
+			timer.Stop()
 		}
 	}
 
