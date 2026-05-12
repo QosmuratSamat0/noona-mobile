@@ -15,17 +15,21 @@ func AuthMiddleware(secret string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
-				return
-			}
-
 			var tokenStr string
 
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+			if authHeader != "" {
+				if strings.HasPrefix(authHeader, "Bearer ") {
+					tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+				} else {
+					tokenStr = authHeader
+				}
 			} else {
-				tokenStr = authHeader
+				tokenStr = r.URL.Query().Get("token")
+			}
+
+			if tokenStr == "" {
+				http.Error(w, "missing authorization token", http.StatusUnauthorized)
+				return
 			}
 
 			tokenStr = strings.TrimSpace(tokenStr)
