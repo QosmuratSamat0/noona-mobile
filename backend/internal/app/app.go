@@ -16,6 +16,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/redis/go-redis/v9"
 )
 
 type App struct {
@@ -32,7 +35,22 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 
 	logger.Info("Database connected")
 
-	deps, err := BuildDeps(dbpool, cfg)
+	minioClient, err := minio.New(cfg.MinioEndpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.MinioAccessKeyID, cfg.MinioSecretAccessKey, ""),
+		Secure: cfg.MinioUseSSL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize minio client: %w", err)
+	}
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: cfg.RedisURL,
+	})
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to redis: %w", err)
+	}
+
+	deps, err := BuildDeps(dbpool, minioClient, redisClient, cfg)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to build deps: %w", err)
