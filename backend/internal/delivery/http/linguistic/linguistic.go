@@ -2,19 +2,21 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/middleware"
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	resp "github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/api/response"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 )
 
 type LinguisticUseCase interface {
 	SaveTranscript(ctx context.Context, messageID, rawText string) (*domain.Transcript, error)
-	GetTranscript(ctx context.Context, messageID string) (*domain.Transcript, error)
+	GetTranscript(ctx context.Context, userID, messageID string) (*domain.Transcript, error)
 	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*domain.Correction, error)
 	GetCorrections(ctx context.Context, transcriptID string) ([]*domain.Correction, error)
 	SaveMistake(ctx context.Context, userID, mistakeType, original, fixed string) (*domain.Mistake, error)
@@ -100,12 +102,24 @@ func (h *LinguisticHandler) GetUserMistakes(w http.ResponseWriter, r *http.Reque
 // @Security BearerAuth
 // @Router /linguistic/messages/{messageID}/corrections [get]
 func (h *LinguisticHandler) GetCorrectionsByMessage(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		render.Status(r, http.StatusUnauthorized)
+		render.JSON(w, r, resp.Error("unauthorized"))
+		return
+	}
+
 	messageID := chi.URLParam(r, "messageID")
 
-	transcript, err := h.uc.GetTranscript(r.Context(), messageID)
+	transcript, err := h.uc.GetTranscript(r.Context(), user.ID, messageID)
 	if err != nil {
-		render.Status(r, http.StatusNotFound)
-		render.JSON(w, r, resp.Error("transcript not found"))
+		if errors.Is(err, errs.ErrNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, resp.Error("transcript not found"))
+			return
+		}
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, resp.Error("internal error"))
 		return
 	}
 

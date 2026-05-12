@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -20,11 +23,20 @@ func (r *PostgresRepo) SaveTranscript(ctx context.Context, t *domain.Transcript)
 	return r.db.QueryRow(ctx, query, t.MessageID, t.RawText).Scan(&t.ID)
 }
 
-func (r *PostgresRepo) GetTranscriptByMessageID(ctx context.Context, messageID string) (*domain.Transcript, error) {
-	query := `SELECT id, message_id, raw_text FROM transcripts WHERE message_id = $1`
+func (r *PostgresRepo) GetTranscriptByMessageID(ctx context.Context, messageID string, userID string) (*domain.Transcript, error) {
+	query := `
+		SELECT t.id, t.message_id, t.raw_text 
+		FROM transcripts t
+		JOIN messages m ON t.message_id = m.id
+		JOIN sessions s ON m.session_id = s.id
+		WHERE t.message_id = $1 AND s.user_id = $2
+	`
 	t := &domain.Transcript{}
-	err := r.db.QueryRow(ctx, query, messageID).Scan(&t.ID, &t.MessageID, &t.RawText)
+	err := r.db.QueryRow(ctx, query, messageID, userID).Scan(&t.ID, &t.MessageID, &t.RawText)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errs.ErrNotFound
+		}
 		return nil, err
 	}
 	return t, nil
