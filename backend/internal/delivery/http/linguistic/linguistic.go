@@ -94,6 +94,7 @@ func (h *LinguisticHandler) GetUserMistakes(w http.ResponseWriter, r *http.Reque
 // @Produce  json
 // @Param   messageID  path      string  true  "Message ID"
 // @Success 200 {array} CorrectionResponse
+// @Failure 401 {object} response.Response
 // @Failure 404 {object} response.Response
 // @Failure 500 {object} response.Response
 // @Security BearerAuth

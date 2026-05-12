@@ -2,23 +2,36 @@ package chat
 
 import (
 	"context"
+	"log/slog"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
 )
 
 type UseCase struct {
-	chatRepo ChatRepo
+	chatRepo   ChatRepo
+	activityUC ActivityUseCase
 }
 
-func NewUseCase(chatRepo ChatRepo) *UseCase {
+func NewUseCase(chatRepo ChatRepo, activityUC ActivityUseCase) *UseCase {
 	return &UseCase{
-		chatRepo: chatRepo,
+		chatRepo:   chatRepo,
+		activityUC: activityUC,
 	}
 }
 
 func (uc *UseCase) CreateSession(ctx context.Context, userID string) (*domain.Session, error) {
-	return uc.chatRepo.CreateSession(ctx, userID)
+	session, err := uc.chatRepo.CreateSession(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record activity
+	if err := uc.activityUC.RecordActivity(ctx, userID); err != nil {
+		slog.Error("failed to record activity on session creation", "error", err, "user_id", userID)
+	}
+
+	return session, nil
 }
 
 func (uc *UseCase) GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error) {

@@ -14,3 +14,7 @@ type StorageRepo interface {
 type JobRepo interface {
 	CreateJob(ctx context.Context, job audio.Job) error
 }
+
+type ActivityUseCase interface {
+	RecordActivity(ctx context.Context, userID string) error
+}

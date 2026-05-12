@@ -13,3 +13,7 @@ type ChatRepo interface {
 	SaveMessage(ctx context.Context, msg *domain.Message) error
 	GetSessionMessages(ctx context.Context, sessionID string) ([]*domain.Message, error)
 }
+
+type ActivityUseCase interface {
+	RecordActivity(ctx context.Context, userID string) error
+}
