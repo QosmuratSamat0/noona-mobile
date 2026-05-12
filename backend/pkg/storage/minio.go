@@ -59,12 +59,12 @@ func (mc *MinioClient) Upload(ctx context.Context, bucket, key string, reader io
 
 func (mc *MinioClient) GetPresignedURL(ctx context.Context, bucket, key string, expires time.Duration) (string, error) {
 	reqParams := make(url.Values)
-	
+
 	presignedURL, err := mc.client.PresignedGetObject(ctx, bucket, key, expires, reqParams)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned url for %s/%s: %w", bucket, key, err)
 	}
-	
+
 	return presignedURL.String(), nil
 }
 
