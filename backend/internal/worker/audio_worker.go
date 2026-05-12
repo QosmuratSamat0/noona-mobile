@@ -138,9 +138,11 @@ func (w *AudioWorker) removeFromInProgress(ctx context.Context, inProgressQueue,
 				"attempt", attempt+1,
 				"max_retries", cleanupMaxRetries)
 
+			timer := time.NewTimer(cleanupRetryDelay)
 			select {
-			case <-time.After(cleanupRetryDelay):
+			case <-timer.C:
 			case <-ctx.Done():
+				timer.Stop()
 				slog.Error("context canceled during cleanup retry", "queue", inProgressQueue, "reason", reason)
 				return
 			}
@@ -157,7 +159,7 @@ func (w *AudioWorker) removeFromInProgress(ctx context.Context, inProgressQueue,
 	}
 
 	if removed == 0 {
-		slog.Warn("job was not found in in-progress queue", "queue", inProgressQueue, "reason", reason)
+		slog.Error("job was not found in in-progress queue (possible race or duplicate cleanup)", "queue", inProgressQueue, "reason", reason)
 	}
 }
 
