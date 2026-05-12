@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -54,12 +55,19 @@ func (w *AudioWorker) Stop() {
 	slog.Info("audio worker pool stopped")
 }
 
+const (
+	workerMaxBackoff = 30 * time.Second
+	workerBaseJitter = time.Second
+)
+
 func (w *AudioWorker) worker(id int) {
 	defer w.wg.Done()
 	slog.Info("audio worker started", "worker_id", id)
 
 	inProgressQueue := w.queueName + ":in_progress"
 	dlqQueue := w.queueName + ":dlq"
+
+	consecutiveErrors := 0
 
 	for {
 		select {
@@ -69,11 +77,22 @@ func (w *AudioWorker) worker(id int) {
 		default:
 			jobData, err := w.redisClient.BLMove(w.ctx, w.queueName, inProgressQueue, "LEFT", "RIGHT", 2*time.Second).Result()
 			if err != nil {
-				if err != redis.Nil && err != context.Canceled {
-					slog.Error("error moving job from redis", "error", err, "worker_id", id)
+				if err == redis.Nil || err == context.Canceled {
+					consecutiveErrors = 0
+					continue
+				}
+				consecutiveErrors++
+				backoff := min(time.Duration(consecutiveErrors)*time.Second, workerMaxBackoff)
+				jitter := time.Duration(rand.Int64N(int64(workerBaseJitter) + 1))
+				slog.Error("error moving job from redis", "error", err, "worker_id", id, "backoff", backoff+jitter)
+				select {
+				case <-time.After(backoff + jitter):
+				case <-w.ctx.Done():
+					return
 				}
 				continue
 			}
+			consecutiveErrors = 0
 
 			if jobData == "" {
 				continue

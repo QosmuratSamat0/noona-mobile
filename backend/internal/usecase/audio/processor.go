@@ -61,7 +61,7 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 		},
 	}
 
-	if err := p.ws.PushToUser(job.UserID, payload); err != nil {
+	if err := p.ws.PushToUser(ctx, job.UserID, payload); err != nil {
 		slog.Error("ws push failed", "job_id", job.JobID, "error", err)
 		return fmt.Errorf("ws push failed: %w", err)
 	}
