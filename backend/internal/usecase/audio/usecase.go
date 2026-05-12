@@ -39,6 +39,10 @@ func (uc *UseCase) UploadAudio(ctx context.Context, userID string, file io.Reade
 	}
 
 	if err := uc.jobRepo.CreateJob(ctx, job); err != nil {
+		// Cleanup orphaned file
+		if cleanupErr := uc.storage.DeleteFile(ctx, filePath); cleanupErr != nil {
+			slog.Error("failed to cleanup orphaned file", "error", cleanupErr, "file_path", filePath)
+		}
 		return "", fmt.Errorf("failed to create job: %w", err)
 	}
 

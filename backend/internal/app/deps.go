@@ -46,6 +46,7 @@ type Deps struct {
 	ActivityUseCase   ActivityUseCase
 	AudioUseCase      AudioUseCase
 	Hub               *wsHub.Hub
+	Redis             *redis.Client
 }
 
 func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, hub *wsHub.Hub, cfg *config.Config) (*Deps, error) {
@@ -77,6 +78,7 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		ActivityUseCase:   activityUseCase,
 		AudioUseCase:      audioUseCase,
 		Hub:               hub,
+		Redis:             redisClient,
 	}, nil
 }
 

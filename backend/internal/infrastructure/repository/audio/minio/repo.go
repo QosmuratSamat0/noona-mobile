@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -45,4 +46,13 @@ func (r *StorageRepo) UploadFile(ctx context.Context, file io.Reader, fileSize i
 	}
 
 	return fmt.Sprintf("%s/%s", r.bucketName, fileName), nil
+}
+
+func (r *StorageRepo) DeleteFile(ctx context.Context, filePath string) error {
+	objectName := strings.TrimPrefix(filePath, r.bucketName+"/")
+	err := r.client.RemoveObject(ctx, r.bucketName, objectName, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete file from minio: %w", err)
+	}
+	return nil
 }

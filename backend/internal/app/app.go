@@ -130,6 +130,11 @@ func (a *App) Shutdown() error {
 		a.deps.DB.Close()
 	}
 
+	if a.deps.Redis != nil {
+		log.Println("Closing redis...")
+		_ = a.deps.Redis.Close()
+	}
+
 	log.Println("Shutdown complete")
 
 	return nil
