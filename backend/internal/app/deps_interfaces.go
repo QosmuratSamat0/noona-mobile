@@ -36,7 +36,7 @@ type ChatUseCase interface {
 
 type LinguisticUseCase interface {
 	SaveTranscript(ctx context.Context, messageID, rawText string) (*linguisticDomain.Transcript, error)
-	GetTranscript(ctx context.Context, messageID string) (*linguisticDomain.Transcript, error)
+	GetTranscript(ctx context.Context, userID, messageID string) (*linguisticDomain.Transcript, error)
 	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*linguisticDomain.Correction, error)
 	GetCorrections(ctx context.Context, transcriptID string) ([]*linguisticDomain.Correction, error)
 	SaveMistake(ctx context.Context, userID, mistakeType, original, fixed string) (*linguisticDomain.Mistake, error)

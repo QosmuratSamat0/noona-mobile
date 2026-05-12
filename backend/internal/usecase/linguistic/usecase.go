@@ -26,8 +26,8 @@ func (uc *UseCase) SaveTranscript(ctx context.Context, messageID, rawText string
 	return t, nil
 }
 
-func (uc *UseCase) GetTranscript(ctx context.Context, messageID string) (*domain.Transcript, error) {
-	return uc.repo.GetTranscriptByMessageID(ctx, messageID)
+func (uc *UseCase) GetTranscript(ctx context.Context, userID string, messageID string) (*domain.Transcript, error) {
+	return uc.repo.GetTranscriptByMessageID(ctx, messageID, userID)
 }
 
 func (uc *UseCase) SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*domain.Correction, error) {

@@ -15,10 +15,7 @@ func NewUseCase(repo ActivityRepo) *UseCase {
 }
 
 func (uc *UseCase) RecordActivity(ctx context.Context, userID string) error {
-	if err := uc.repo.IncrementDailySession(ctx, userID); err != nil {
-		return err
-	}
-	return uc.repo.UpdateStreak(ctx, userID)
+	return uc.repo.RecordActivity(ctx, userID)
 }
 
 func (uc *UseCase) GetActivity(ctx context.Context, userID string) (*domain.Streak, []*domain.DailyStat, error) {

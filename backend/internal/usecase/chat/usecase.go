@@ -8,17 +8,29 @@ import (
 )
 
 type UseCase struct {
-	chatRepo ChatRepo
+	chatRepo   ChatRepo
+	activityUC ActivityUseCase
 }
 
-func NewUseCase(chatRepo ChatRepo) *UseCase {
+func NewUseCase(chatRepo ChatRepo, activityUC ActivityUseCase) *UseCase {
 	return &UseCase{
-		chatRepo: chatRepo,
+		chatRepo:   chatRepo,
+		activityUC: activityUC,
 	}
 }
 
 func (uc *UseCase) CreateSession(ctx context.Context, userID string) (*domain.Session, error) {
-	return uc.chatRepo.CreateSession(ctx, userID)
+	session, err := uc.chatRepo.CreateSession(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record activity asynchronously to not block session creation
+	go func() {
+		_ = uc.activityUC.RecordActivity(context.Background(), userID)
+	}()
+
+	return session, nil
 }
 
 func (uc *UseCase) GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error) {
@@ -44,6 +56,13 @@ func (uc *UseCase) SaveMessage(ctx context.Context, userID string, sessionID str
 	err = uc.chatRepo.SaveMessage(ctx, msg)
 	if err != nil {
 		return nil, err
+	}
+
+	if role == domain.RoleUser {
+		// Record activity asynchronously
+		go func() {
+			_ = uc.activityUC.RecordActivity(context.Background(), userID)
+		}()
 	}
 
 	return msg, nil

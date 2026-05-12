@@ -8,7 +8,7 @@ import (
 
 type LinguisticRepo interface {
 	SaveTranscript(ctx context.Context, t *domain.Transcript) error
-	GetTranscriptByMessageID(ctx context.Context, messageID string) (*domain.Transcript, error)
+	GetTranscriptByMessageID(ctx context.Context, messageID string, userID string) (*domain.Transcript, error)
 
 	SaveCorrection(ctx context.Context, c *domain.Correction) error
 	GetCorrectionsByTranscriptID(ctx context.Context, transcriptID string) ([]*domain.Correction, error)
