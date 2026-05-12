@@ -7,9 +7,7 @@ import (
 )
 
 type ActivityRepo interface {
-	IncrementDailySession(ctx context.Context, userID string) error
+	RecordActivity(ctx context.Context, userID string) error
 	GetDailyStats(ctx context.Context, userID string) ([]*domain.DailyStat, error)
-
 	GetStreak(ctx context.Context, userID string) (*domain.Streak, error)
-	UpdateStreak(ctx context.Context, userID string) error
 }

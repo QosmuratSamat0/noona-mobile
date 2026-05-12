@@ -62,10 +62,10 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	// UseCases
 	userUseCase := userUseCase.NewUseCase(userRepo)
 	authUseCase := authUseCase.NewUseCase(userRepo, authRepo, cfg.JWTSecret)
-	chatUseCase := chatUseCase.NewUseCase(chatRepo)
-	linguisticUseCase := linguisticUseCase.NewUseCase(linguisticRepo)
 	activityUseCase := activityUseCase.NewUseCase(activityRepo)
-	audioUseCase := audioUseCase.NewUseCase(audioStorage, audioJob)
+	chatUseCase := chatUseCase.NewUseCase(chatRepo, activityUseCase)
+	linguisticUseCase := linguisticUseCase.NewUseCase(linguisticRepo)
+	audioUseCase := audioUseCase.NewUseCase(audioStorage, audioJob, activityUseCase)
 
 	return &Deps{
 		Config:            cfg,

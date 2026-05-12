@@ -10,14 +10,16 @@ import (
 )
 
 type UseCase struct {
-	storage StorageRepo
-	jobRepo JobRepo
+	storage    StorageRepo
+	jobRepo    JobRepo
+	activityUC ActivityUseCase
 }
 
-func NewUseCase(storage StorageRepo, jobRepo JobRepo) *UseCase {
+func NewUseCase(storage StorageRepo, jobRepo JobRepo, activityUC ActivityUseCase) *UseCase {
 	return &UseCase{
-		storage: storage,
-		jobRepo: jobRepo,
+		storage:    storage,
+		jobRepo:    jobRepo,
+		activityUC: activityUC,
 	}
 }
 
@@ -38,6 +40,11 @@ func (uc *UseCase) UploadAudio(ctx context.Context, userID string, file io.Reade
 	if err := uc.jobRepo.CreateJob(ctx, job); err != nil {
 		return "", fmt.Errorf("failed to create job: %w", err)
 	}
+
+	// Record activity asynchronously
+	go func() {
+		_ = uc.activityUC.RecordActivity(context.Background(), userID)
+	}()
 
 	return jobID, nil
 }
