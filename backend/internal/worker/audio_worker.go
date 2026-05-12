@@ -91,10 +91,21 @@ func (w *AudioWorker) worker(id int) {
 				w.moveToDLQ(jobData, inProgressQueue, dlqQueue)
 			} else {
 				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				w.redisClient.LRem(cleanupCtx, inProgressQueue, 1, jobData)
+				w.removeFromInProgress(cleanupCtx, inProgressQueue, jobData, "processed job")
 				cancel()
 			}
 		}
+	}
+}
+
+func (w *AudioWorker) removeFromInProgress(ctx context.Context, inProgressQueue, jobData, reason string) {
+	removed, err := w.redisClient.LRem(ctx, inProgressQueue, 1, jobData).Result()
+	if err != nil {
+		slog.Error("failed to remove job from in-progress queue", "error", err, "queue", inProgressQueue, "reason", reason)
+		return
+	}
+	if removed == 0 {
+		slog.Error("job was not removed from in-progress queue", "queue", inProgressQueue, "reason", reason)
 	}
 }
 
@@ -104,7 +115,7 @@ func (w *AudioWorker) moveToDLQ(jobData, inProgressQueue, dlqQueue string) {
 
 	err := w.redisClient.RPush(cleanupCtx, dlqQueue, jobData).Err()
 	if err == nil {
-		w.redisClient.LRem(cleanupCtx, inProgressQueue, 1, jobData)
+		w.removeFromInProgress(cleanupCtx, inProgressQueue, jobData, "moved to DLQ")
 	} else {
 		slog.Error("failed to move job to DLQ", "error", err)
 	}
