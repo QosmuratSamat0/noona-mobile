@@ -23,7 +23,7 @@ func AuthMiddleware(secret string) func(http.Handler) http.Handler {
 				} else {
 					tokenStr = authHeader
 				}
-			} else {
+			} else if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 				tokenStr = r.URL.Query().Get("token")
 			}
 

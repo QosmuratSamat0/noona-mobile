@@ -48,18 +48,20 @@ func (h *Hub) Unregister(userID string, ch chan []byte) {
 }
 
 func (h *Hub) SendToUser(userID string, msg Message) {
-	h.mu.RLock()
-	ch, ok := h.clients[userID]
-	h.mu.RUnlock()
-
-	if !ok {
-		slog.Warn("user not connected to ws", "user_id", userID)
-		return
-	}
+	msg.UserID = userID
 
 	data, err := json.Marshal(msg)
 	if err != nil {
 		slog.Error("failed to marshal message", "error", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	ch, ok := h.clients[userID]
+	if !ok {
+		slog.Warn("user not connected to ws", "user_id", userID)
 		return
 	}
 

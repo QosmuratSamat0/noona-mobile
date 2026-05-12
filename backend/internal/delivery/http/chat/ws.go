@@ -3,6 +3,7 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	wsHub "github.com/QosmuratSamat0/Noona-AI/backend/internal/chat"
@@ -20,7 +21,26 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for dev
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		
+		if u.Host == r.Host {
+			return true
+		}
+		
+		if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" {
+			return true
+		}
+		
+		// In a production environment, this should validate against a config-driven allowlist.
+		return false
 	},
 }
 
