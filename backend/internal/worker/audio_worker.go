@@ -56,9 +56,11 @@ func (w *AudioWorker) Stop() {
 }
 
 const (
-	workerMaxBackoff      = 30 * time.Second
-	workerBaseJitter      = time.Second
+	workerMaxBackoff       = 30 * time.Second
+	workerBaseJitter       = time.Second
 	workerMaxRetryExponent = 5 // caps exponential backoff at 2^5 = 32 seconds before the 30s ceiling
+	cleanupMaxRetries      = 3
+	cleanupRetryDelay      = 500 * time.Millisecond
 )
 
 func (w *AudioWorker) worker(id int) {
@@ -119,13 +121,43 @@ func (w *AudioWorker) worker(id int) {
 }
 
 func (w *AudioWorker) removeFromInProgress(ctx context.Context, inProgressQueue, jobData, reason string) {
-	removed, err := w.redisClient.LRem(ctx, inProgressQueue, 1, jobData).Result()
+	var removed int64
+	var err error
+
+	for attempt := 0; attempt < cleanupMaxRetries; attempt++ {
+		removed, err = w.redisClient.LRem(ctx, inProgressQueue, 1, jobData).Result()
+		if err == nil {
+			break
+		}
+
+		if attempt < cleanupMaxRetries-1 {
+			slog.Warn("failed to remove job from in-progress queue, retrying",
+				"error", err,
+				"queue", inProgressQueue,
+				"reason", reason,
+				"attempt", attempt+1,
+				"max_retries", cleanupMaxRetries)
+
+			select {
+			case <-time.After(cleanupRetryDelay):
+			case <-ctx.Done():
+				slog.Error("context canceled during cleanup retry", "queue", inProgressQueue, "reason", reason)
+				return
+			}
+		}
+	}
+
 	if err != nil {
-		slog.Error("failed to remove job from in-progress queue", "error", err, "queue", inProgressQueue, "reason", reason)
+		slog.Error("failed to remove job from in-progress queue after retries",
+			"error", err,
+			"queue", inProgressQueue,
+			"reason", reason,
+			"attempts", cleanupMaxRetries)
 		return
 	}
+
 	if removed == 0 {
-		slog.Error("job was not removed from in-progress queue", "queue", inProgressQueue, "reason", reason)
+		slog.Warn("job was not found in in-progress queue", "queue", inProgressQueue, "reason", reason)
 	}
 }
 
