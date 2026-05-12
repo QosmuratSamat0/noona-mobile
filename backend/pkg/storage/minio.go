@@ -35,7 +35,10 @@ func (mc *MinioClient) EnsureBucket(ctx context.Context, bucketName string) erro
 	if !exists {
 		err = mc.client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create bucket %s: %w", bucketName, err)
+			errResp := minio.ToErrorResponse(err)
+			if errResp.Code != "BucketAlreadyOwnedByYou" && errResp.Code != "BucketAlreadyExists" {
+				return fmt.Errorf("failed to create bucket %s: %w", bucketName, err)
+			}
 		}
 	}
 	return nil
