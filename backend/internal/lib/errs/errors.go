@@ -21,4 +21,7 @@ var (
 	ErrCannotDeleteLastAdmin = errors.New("cannot delete last admin")
 	ErrCannotDemoteLastAdmin = errors.New("cannot demote last admin")
 	
+	// Chat
+	ErrSessionNotFound = errors.New("chat session not found")
+	ErrSessionAccessDenied = errors.New("access denied to chat session")
 )

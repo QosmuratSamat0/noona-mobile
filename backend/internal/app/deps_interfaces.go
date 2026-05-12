@@ -30,8 +30,8 @@ type AuthUseCase interface {
 type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*chatDomain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*chatDomain.Session, error)
-	SaveMessage(ctx context.Context, sessionID string, role chatDomain.Role, content string) (*chatDomain.Message, error)
-	GetSessionMessages(ctx context.Context, sessionID string) ([]*chatDomain.Message, error)
+	SaveMessage(ctx context.Context, userID string, sessionID string, role chatDomain.Role, content string) (*chatDomain.Message, error)
+	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*chatDomain.Message, error)
 }
 
 type LinguisticUseCase interface {

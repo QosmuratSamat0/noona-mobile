@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/mail"
 	"time"
 
@@ -71,7 +72,7 @@ func (uc *UseCase) Login(ctx context.Context, input LoginInput) (*AuthTokens, er
 
 	user, err := uc.UserRepo.GetUserByEmail(ctx, input.Email)
 	if err != nil {
-		return nil, errs.ErrInvalidCredentials
+		return nil, err
 	}
 	if user == nil {
 		return nil, errs.ErrInvalidCredentials
@@ -110,7 +111,10 @@ func (uc *UseCase) Logout(ctx context.Context, refreshToken string) error {
 func (uc *UseCase) Refresh(ctx context.Context, refreshToken string) (*AuthTokens, error) {
 	userID, err := uc.TokenRepo.DeleteRefreshToken(ctx, refreshToken)
 	if err != nil {
-		return nil, errs.ErrUnauthorized
+		if errors.Is(err, errs.ErrNotFound) {
+			return nil, errs.ErrUnauthorized
+		}
+		return nil, err
 	}
 
 	user, err := uc.UserRepo.GetUserByID(ctx, userID)
