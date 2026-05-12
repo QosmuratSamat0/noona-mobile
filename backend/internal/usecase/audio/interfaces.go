@@ -33,7 +33,7 @@ type TTSService interface {
 }
 
 type WSPusher interface {
-	PushToUser(userID string, payload any) error
+	PushToUser(ctx context.Context, userID string, payload any) error
 }
 
 type Processor interface {
