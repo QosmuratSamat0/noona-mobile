@@ -19,3 +19,23 @@ type JobRepo interface {
 type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
 }
+
+type STTService interface {
+	Transcribe(ctx context.Context, audioPath string) (string, error)
+}
+
+type LLMService interface {
+	Analyze(ctx context.Context, transcript string) (string, error)
+}
+
+type TTSService interface {
+	GenerateAudio(ctx context.Context, text string) (string, error)
+}
+
+type WSPusher interface {
+	PushToUser(userID string, payload any) error
+}
+
+type Processor interface {
+	ProcessJob(ctx context.Context, job audio.Job) error
+}
