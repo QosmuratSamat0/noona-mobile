@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -97,7 +98,10 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 		return "", fmt.Errorf("stt grpc: open stream: %w", err)
 	}
 
-	finalTextCh := make(chan string, 1)
+	var (
+		finalText   string
+		finalTextMu sync.Mutex
+	)
 	group, groupCtx := errgroup.WithContext(ctx)
 
 	// 2. Stream MinIO object in chunks (producer goroutine)
@@ -107,11 +111,9 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 
 	// 3. Collect results (consumer goroutine)
 	group.Go(func() error {
-		finalText := ""
 		for {
 			result, recvErr := stream.Recv()
 			if recvErr == io.EOF {
-				finalTextCh <- finalText
 				return nil
 			}
 			if recvErr != nil {
@@ -123,7 +125,9 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 				"text_len", len(result.Text),
 			)
 			if result.IsFinal {
+				finalTextMu.Lock()
 				finalText = result.Text
+				finalTextMu.Unlock()
 			}
 		}
 	})
@@ -131,10 +135,12 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 	if err := group.Wait(); err != nil {
 		return "", err
 	}
-	finalText := <-finalTextCh
+	finalTextMu.Lock()
+	finalResult := finalText
+	finalTextMu.Unlock()
 
-	slog.Info("stt grpc: transcription complete", "file", filePath, "text_len", len(finalText))
-	return finalText, nil
+	slog.Info("stt grpc: transcription complete", "file", filePath, "text_len", len(finalResult))
+	return finalResult, nil
 }
 
 // streamMinioObject reads the audio file from MinIO and sends it as gRPC chunks.
