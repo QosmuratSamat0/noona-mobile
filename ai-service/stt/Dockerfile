@@ -22,8 +22,10 @@ RUN pip install --upgrade pip \
 FROM python:3.11-slim AS runtime
 
 # ffmpeg is required at runtime by faster-whisper for audio decoding
+# libsndfile1 is required at runtime by the Python soundfile package
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
