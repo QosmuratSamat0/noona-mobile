@@ -53,6 +53,7 @@ type Deps struct {
 	AudioWorker       *worker.AudioWorker
 	Hub               *wsHub.Hub
 	Redis             *redis.Client
+	GeminiProvider    *gemini.GeminiProvider
 }
 
 func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, hub *wsHub.Hub, cfg *config.Config) (*Deps, error) {
@@ -113,6 +114,7 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		AudioWorker:       audioWorker,
 		Hub:               hub,
 		Redis:             redisClient,
+		GeminiProvider:    llm,
 	}, nil
 }
 

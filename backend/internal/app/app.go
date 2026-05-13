@@ -147,6 +147,11 @@ func (a *App) Shutdown() error {
 		_ = a.deps.Redis.Close()
 	}
 
+	if a.deps.GeminiProvider != nil {
+		log.Println("Closing gemini provider...")
+		_ = a.deps.GeminiProvider.Close()
+	}
+
 	log.Println("Shutdown complete")
 
 	return nil
