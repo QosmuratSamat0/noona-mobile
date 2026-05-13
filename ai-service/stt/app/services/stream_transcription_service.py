@@ -14,6 +14,7 @@ RAW_PCM_S16LE path  (AudioFormat.RAW_PCM_S16LE = 1):
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from typing import AsyncIterator
@@ -25,6 +26,7 @@ import grpc
 # Generated stubs (run `make proto` to create these files)
 from app.proto import stt_pb2, stt_pb2_grpc
 from app.adapters.vad_processor import VADRingBuffer, load_silero_vad
+from app.adapters.ffmpeg_decoder import StreamingDecoder
 from app.adapters.whisper_model import ModelHandle, run_transcription
 from app.config import Settings
 
@@ -111,50 +113,104 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
         Client sends AudioChunk messages; server yields TranscriptResult messages.
         """
         language: str | None = None
-        audio_format = stt_pb2.AudioFormat.Value("ENCODED")
-
-        # For ENCODED: accumulate all bytes then process
-        encoded_buffer = bytearray()
-
-        # For RAW_PCM: stateful VAD ring buffer
+        audio_format: int | None = None
+        
         vad: VADRingBuffer | None = None
+        decoder: StreamingDecoder | None = None
+        
+        # Queue for speech segments found by the background reader or the main loop
+        speech_queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
+        
+        async def ffmpeg_reader():
+            """Background task to read from FFmpeg and push to VAD."""
+            nonlocal vad
+            if not decoder or not vad:
+                return
+            try:
+                while True:
+                    pcm_bytes = await decoder.read(8192)
+                    if not pcm_bytes:  # EOF
+                        break
+                    speech = vad.push(pcm_bytes)
+                    if speech is not None:
+                        await speech_queue.put(speech)
+            except Exception as e:
+                logger.error("Error in ffmpeg_reader: %s", e)
 
-        async for chunk in request_iterator:
-            # Latch language and format from first chunk that specifies them
-            if chunk.language:
-                language = chunk.language
-            if chunk.format == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
-                audio_format = stt_pb2.AudioFormat.Value("RAW_PCM_S16LE")
+        reader_task: asyncio.Task | None = None
+
+        try:
+            async for chunk in request_iterator:
+                # 1. Initialize state on first chunk
+                if chunk.language and language is None:
+                    language = chunk.language
+                
+                if audio_format is None and chunk.format != 0: # 0 is often default/unset, check proto
+                    # Actually let's just check the explicit format
+                    audio_format = chunk.format
+
+                # Default to ENCODED if still not set
+                if audio_format is None:
+                    audio_format = stt_pb2.AudioFormat.Value("ENCODED")
+
+                # 2. Setup VAD and Decoder if needed
                 if vad is None:
                     vad = VADRingBuffer(
                         model=self._vad_model,
                         threshold=self._settings.vad_threshold,
                         sample_rate=chunk.sample_rate or 16_000,
                     )
+                
+                if audio_format == stt_pb2.AudioFormat.Value("ENCODED") and decoder is None:
+                    decoder = StreamingDecoder(sample_rate=chunk.sample_rate or 16_000)
+                    await decoder.start()
+                    reader_task = asyncio.create_task(ffmpeg_reader())
 
-            if audio_format == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
-                # ── Real-time PCM path ────────────────────────────────────
-                if chunk.end_of_stream:
-                    speech = vad.flush() if vad else None
+                # 3. Process data
+                if audio_format == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
+                    if chunk.data:
+                        speech = vad.push(chunk.data)
+                        if speech is not None:
+                            await speech_queue.put(speech)
                 else:
-                    speech = vad.push(chunk.data) if vad else None
+                    # ENCODED path
+                    if chunk.data:
+                        await decoder.push(chunk.data)
 
-                if speech is not None:
+                # 4. Yield any ready results from the queue
+                while not speech_queue.empty():
+                    speech = await speech_queue.get()
                     logger.info("VAD: speech segment ready (%.2fs)", len(speech) / 16_000)
                     result = _whisper_on_array(self._model, speech, language)
                     yield result
 
-            else:
-                # ── Encoded file path ─────────────────────────────────────
-                if chunk.data:
-                    encoded_buffer.extend(chunk.data)
+                if chunk.end_of_stream:
+                    break
 
-                if chunk.end_of_stream and encoded_buffer:
-                    logger.info("ENCODED: decoding %d bytes", len(encoded_buffer))
-                    audio = _decode_encoded_audio(bytes(encoded_buffer))
-                    result = _whisper_on_array(self._model, audio, language)
+            # ── End of Stream ──────────────────────────────────────────────────
+            
+            # Close decoder and wait for reader to finish
+            if decoder:
+                await decoder.stop()
+            if reader_task:
+                await reader_task
+
+            # Final flush of VAD
+            if vad:
+                speech = vad.flush()
+                if speech is not None:
+                    logger.info("VAD: final speech segment ready (%.2fs)", len(speech) / 16_000)
+                    result = _whisper_on_array(self._model, speech, language)
                     yield result
-                    encoded_buffer.clear()
+
+        except Exception as e:
+            logger.exception("Error in TranscribeStream: %s", e)
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
+        finally:
+            if decoder:
+                await decoder.stop()
+            if reader_task and not reader_task.done():
+                reader_task.cancel()
 
     # ── Health ────────────────────────────────────────────────────────────────
 
