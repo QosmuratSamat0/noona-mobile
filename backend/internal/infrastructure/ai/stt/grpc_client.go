@@ -97,7 +97,7 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 		return "", fmt.Errorf("stt grpc: open stream: %w", err)
 	}
 
-	finalText := ""
+	finalTextCh := make(chan string, 1)
 	group, groupCtx := errgroup.WithContext(ctx)
 
 	// 2. Stream MinIO object in chunks (producer goroutine)
@@ -107,9 +107,11 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 
 	// 3. Collect results (consumer goroutine)
 	group.Go(func() error {
+		finalText := ""
 		for {
 			result, recvErr := stream.Recv()
 			if recvErr == io.EOF {
+				finalTextCh <- finalText
 				return nil
 			}
 			if recvErr != nil {
@@ -129,6 +131,7 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 	if err := group.Wait(); err != nil {
 		return "", err
 	}
+	finalText := <-finalTextCh
 
 	slog.Info("stt grpc: transcription complete", "file", filePath, "text_len", len(finalText))
 	return finalText, nil
