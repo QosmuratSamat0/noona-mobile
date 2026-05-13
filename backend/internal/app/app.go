@@ -148,7 +148,7 @@ func (a *App) Shutdown() error {
 	}
 
 	if a.deps.GeminiProvider != nil {
-		log.Println("Closing gemini provider...")
+		log.Println("Closing Gemini provider...")
 		_ = a.deps.GeminiProvider.Close()
 	}
 
