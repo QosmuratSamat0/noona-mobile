@@ -86,7 +86,16 @@ func (p *GeminiProvider) Analyze(ctx context.Context, transcript string) (*lingu
 		if attempt > 0 {
 			backoff := time.Duration(1<<(uint(attempt)-1)) * time.Second
 			slog.Info("retrying gemini analysis", "attempt", attempt+1, "backoff", backoff)
-			time.Sleep(backoff)
+
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
 		}
 
 		logRaw := (attempt == 2)
