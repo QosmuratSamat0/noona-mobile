@@ -62,7 +62,9 @@ def _decode_encoded_audio(raw_bytes: bytes, sample_rate: int = 16_000) -> np.nda
             check=True,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("ffmpeg not found") from exc
+        raise RuntimeError(
+            "ffmpeg not found. Please ensure ffmpeg is installed and available in PATH"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         err = exc.stderr.decode("utf-8", errors="ignore").strip()
         raise ValueError(f"ffmpeg decode failed: {err or 'unknown error'}") from exc
@@ -70,7 +72,7 @@ def _decode_encoded_audio(raw_bytes: bytes, sample_rate: int = 16_000) -> np.nda
     pcm = np.frombuffer(proc.stdout, dtype=np.int16)
     if pcm.size == 0:
         return np.array([], dtype=np.float32)
-    return (pcm.astype(np.float32) / 32768.0).astype(np.float32)
+    return pcm.astype(np.float32) / 32768.0
 
 
 def _whisper_on_array(
