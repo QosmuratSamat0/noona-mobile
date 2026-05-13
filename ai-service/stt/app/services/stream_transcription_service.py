@@ -64,7 +64,8 @@ def _decode_encoded_audio(raw_bytes: bytes, sample_rate: int = 16_000) -> np.nda
     except FileNotFoundError as exc:
         raise RuntimeError(
             "ffmpeg not found. Install it with 'apt-get install ffmpeg' (Linux) or "
-            "'brew install ffmpeg' (macOS), then ensure it is available in PATH"
+            "'brew install ffmpeg' (macOS), or 'choco install ffmpeg' (Windows), "
+            "then ensure it is available in PATH"
         ) from exc
     except subprocess.CalledProcessError as exc:
         err = exc.stderr.decode("utf-8", errors="ignore").strip()
