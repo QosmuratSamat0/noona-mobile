@@ -90,3 +90,10 @@ func (r *PostgresRepo) GetMistakesByUserID(ctx context.Context, userID string) (
 	}
 	return mistakes, nil
 }
+
+func (r *PostgresRepo) UpdateCEFRLevel(ctx context.Context, userID string, level string) error {
+	query := `INSERT INTO profiles (user_id, cefr_level) VALUES ($1, $2)
+              ON CONFLICT (user_id) DO UPDATE SET cefr_level = EXCLUDED.cefr_level`
+	_, err := r.db.Exec(ctx, query, userID, level)
+	return err
+}

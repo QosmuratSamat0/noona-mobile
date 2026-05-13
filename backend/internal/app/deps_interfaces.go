@@ -41,6 +41,7 @@ type LinguisticUseCase interface {
 	GetCorrections(ctx context.Context, transcriptID string) ([]*linguisticDomain.Correction, error)
 	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*linguisticDomain.MistakeModel, error)
 	GetUserMistakes(ctx context.Context, userID string) ([]*linguisticDomain.MistakeModel, error)
+	UpdateCEFRLevel(ctx context.Context, userID, level string) error
 }
 
 type ActivityUseCase interface {
