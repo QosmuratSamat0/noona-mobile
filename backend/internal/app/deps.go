@@ -86,13 +86,13 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	}
 
 	// Gemini LLM provider — calls Google Gemini API for deep analysis
-	llm, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, "gemini-1.5-flash")
+	geminiProvider, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, "gemini-1.5-flash")
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize gemini provider: %w", err)
 	}
 
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
-	processor := audioUseCase.NewAudioProcessor(stt, llm, nil, hub, linguisticUC)
+	processor := audioUseCase.NewAudioProcessor(stt, geminiProvider, nil, hub, linguisticUC)
 
 	// Worker pool — picks jobs from Redis queue and runs processor.
 	audioWorker := worker.NewAudioWorker(
@@ -114,7 +114,7 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		AudioWorker:       audioWorker,
 		Hub:               hub,
 		Redis:             redisClient,
-		GeminiProvider:    llm,
+		GeminiProvider:    geminiProvider,
 	}, nil
 }
 
