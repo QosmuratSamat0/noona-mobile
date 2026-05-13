@@ -17,10 +17,10 @@ import (
 type LinguisticUseCase interface {
 	SaveTranscript(ctx context.Context, messageID, rawText string) (*domain.Transcript, error)
 	GetTranscript(ctx context.Context, userID, messageID string) (*domain.Transcript, error)
-	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*domain.Correction, error)
+	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*domain.Correction, error)
 	GetCorrections(ctx context.Context, transcriptID string) ([]*domain.Correction, error)
-	SaveMistake(ctx context.Context, userID, mistakeType, original, fixed string) (*domain.Mistake, error)
-	GetUserMistakes(ctx context.Context, userID string) ([]*domain.Mistake, error)
+	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*domain.MistakeModel, error)
+	GetUserMistakes(ctx context.Context, userID string) ([]*domain.MistakeModel, error)
 }
 
 type LinguisticHandler struct {
@@ -36,7 +36,8 @@ type MistakeResponse struct {
 	UserID    string    `json:"user_id"`
 	Type      string    `json:"type"`
 	Original  string    `json:"original"`
-	Fixed     string    `json:"fixed"`
+	Corrected string    `json:"corrected"`
+	Offset    int       `json:"offset"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -45,6 +46,7 @@ type CorrectionResponse struct {
 	TranscriptID  string `json:"transcript_id"`
 	CorrectedText string `json:"corrected_text"`
 	Explanation   string `json:"explanation"`
+	CEFRLevel     string `json:"cefr_level"`
 }
 
 // GetUserMistakes godoc
@@ -80,7 +82,8 @@ func (h *LinguisticHandler) GetUserMistakes(w http.ResponseWriter, r *http.Reque
 			UserID:    m.UserID,
 			Type:      m.Type,
 			Original:  m.Original,
-			Fixed:     m.Fixed,
+			Corrected: m.Corrected,
+			Offset:    m.OffsetPos,
 			CreatedAt: m.CreatedAt,
 		})
 	}
@@ -137,6 +140,7 @@ func (h *LinguisticHandler) GetCorrectionsByMessage(w http.ResponseWriter, r *ht
 			TranscriptID:  c.TranscriptID,
 			CorrectedText: c.CorrectedText,
 			Explanation:   c.Explanation,
+			CEFRLevel:     c.CEFRLevel,
 		})
 	}
 

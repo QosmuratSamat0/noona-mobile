@@ -10,12 +10,12 @@ import (
 
 type AudioProcessor struct {
 	stt STTService
-	llm LLMService
+	llm LLMProvider
 	tts TTSService
 	ws  WSPusher
 }
 
-func NewAudioProcessor(stt STTService, llm LLMService, tts TTSService, ws WSPusher) *AudioProcessor {
+func NewAudioProcessor(stt STTService, llm LLMProvider, tts TTSService, ws WSPusher) *AudioProcessor {
 	return &AudioProcessor{
 		stt: stt,
 		llm: llm,
@@ -41,10 +41,10 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 		slog.Error("llm failed", "job_id", job.JobID, "error", err)
 		return fmt.Errorf("llm failed: %w", err)
 	}
-	slog.Info("llm completed", "job_id", job.JobID, "analysis_length", len(analysis))
+	slog.Info("llm completed", "job_id", job.JobID, "correction_length", len(analysis.Correction))
 
 	// 3. TTS - Piper -> audio_url
-	audioURL, err := p.tts.GenerateAudio(ctx, analysis)
+	audioURL, err := p.tts.GenerateAudio(ctx, analysis.Correction)
 	if err != nil {
 		slog.Error("tts failed", "job_id", job.JobID, "error", err)
 		return fmt.Errorf("tts failed: %w", err)

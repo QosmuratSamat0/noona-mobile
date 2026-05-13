@@ -13,6 +13,6 @@ type LinguisticRepo interface {
 	SaveCorrection(ctx context.Context, c *domain.Correction) error
 	GetCorrectionsByTranscriptID(ctx context.Context, transcriptID string) ([]*domain.Correction, error)
 
-	SaveMistake(ctx context.Context, m *domain.Mistake) error
-	GetUserMistakes(ctx context.Context, userID string) ([]*domain.Mistake, error)
+	CreateMistake(ctx context.Context, m domain.MistakeModel) error
+	GetMistakesByUserID(ctx context.Context, userID string) ([]*domain.MistakeModel, error)
 }

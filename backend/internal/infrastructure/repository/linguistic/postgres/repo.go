@@ -43,12 +43,12 @@ func (r *PostgresRepo) GetTranscriptByMessageID(ctx context.Context, messageID s
 }
 
 func (r *PostgresRepo) SaveCorrection(ctx context.Context, c *domain.Correction) error {
-	query := `INSERT INTO corrections (transcript_id, corrected_text, explanation) VALUES ($1, $2, $3) RETURNING id`
-	return r.db.QueryRow(ctx, query, c.TranscriptID, c.CorrectedText, c.Explanation).Scan(&c.ID)
+	query := `INSERT INTO corrections (transcript_id, corrected_text, explanation, cefr_level) VALUES ($1, $2, $3, $4) RETURNING id`
+	return r.db.QueryRow(ctx, query, c.TranscriptID, c.CorrectedText, c.Explanation, c.CEFRLevel).Scan(&c.ID)
 }
 
 func (r *PostgresRepo) GetCorrectionsByTranscriptID(ctx context.Context, transcriptID string) ([]*domain.Correction, error) {
-	query := `SELECT id, transcript_id, corrected_text, explanation FROM corrections WHERE transcript_id = $1`
+	query := `SELECT id, transcript_id, corrected_text, explanation, cefr_level FROM corrections WHERE transcript_id = $1`
 	rows, err := r.db.Query(ctx, query, transcriptID)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (r *PostgresRepo) GetCorrectionsByTranscriptID(ctx context.Context, transcr
 	var corrections []*domain.Correction
 	for rows.Next() {
 		c := &domain.Correction{}
-		if err := rows.Scan(&c.ID, &c.TranscriptID, &c.CorrectedText, &c.Explanation); err != nil {
+		if err := rows.Scan(&c.ID, &c.TranscriptID, &c.CorrectedText, &c.Explanation, &c.CEFRLevel); err != nil {
 			return nil, err
 		}
 		corrections = append(corrections, c)
@@ -66,23 +66,24 @@ func (r *PostgresRepo) GetCorrectionsByTranscriptID(ctx context.Context, transcr
 	return corrections, nil
 }
 
-func (r *PostgresRepo) SaveMistake(ctx context.Context, m *domain.Mistake) error {
-	query := `INSERT INTO mistakes (user_id, type, original, fixed) VALUES ($1, $2, $3, $4) RETURNING id, created_at`
-	return r.db.QueryRow(ctx, query, m.UserID, m.Type, m.Original, m.Fixed).Scan(&m.ID, &m.CreatedAt)
+func (r *PostgresRepo) CreateMistake(ctx context.Context, m domain.MistakeModel) error {
+	query := `INSERT INTO mistakes (user_id, type, original, corrected, offset_pos) VALUES ($1, $2, $3, $4, $5)`
+	_, err := r.db.Exec(ctx, query, m.UserID, m.Type, m.Original, m.Corrected, m.OffsetPos)
+	return err
 }
 
-func (r *PostgresRepo) GetUserMistakes(ctx context.Context, userID string) ([]*domain.Mistake, error) {
-	query := `SELECT id, user_id, type, original, fixed, created_at FROM mistakes WHERE user_id = $1 ORDER BY created_at DESC`
+func (r *PostgresRepo) GetMistakesByUserID(ctx context.Context, userID string) ([]*domain.MistakeModel, error) {
+	query := `SELECT id, user_id, type, original, corrected, offset_pos, created_at FROM mistakes WHERE user_id = $1 ORDER BY created_at DESC`
 	rows, err := r.db.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var mistakes []*domain.Mistake
+	var mistakes []*domain.MistakeModel
 	for rows.Next() {
-		m := &domain.Mistake{}
-		if err := rows.Scan(&m.ID, &m.UserID, &m.Type, &m.Original, &m.Fixed, &m.CreatedAt); err != nil {
+		m := &domain.MistakeModel{}
+		if err := rows.Scan(&m.ID, &m.UserID, &m.Type, &m.Original, &m.Corrected, &m.OffsetPos, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		mistakes = append(mistakes, m)

@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/audio"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 )
 
 type StorageRepo interface {
@@ -24,8 +25,14 @@ type STTService interface {
 	Transcribe(ctx context.Context, audioPath string) (string, error)
 }
 
-type LLMService interface {
-	Analyze(ctx context.Context, transcript string) (string, error)
+type LLMProvider interface {
+	// StreamReply возвращает канал с текстом ответа в реальном времени.
+	// Это нужно для быстрого вывода в UI и озвучки.
+	StreamReply(ctx context.Context, transcript string) (<-chan string, error)
+
+	// Analyze выполняет тяжелый семантический разбор.
+	// Возвращает структуру Analysis (обычно через JSON Mode).
+	Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error)
 }
 
 type TTSService interface {

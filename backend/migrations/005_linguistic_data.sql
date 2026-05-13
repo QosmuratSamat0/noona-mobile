@@ -10,15 +10,17 @@ CREATE TABLE corrections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transcript_id UUID NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
     corrected_text TEXT NOT NULL,
-    explanation TEXT
+    explanation TEXT,
+    cefr_level TEXT -- A1, A2, B1, B2, C1, C2
 );
 
 CREATE TABLE mistakes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type TEXT NOT NULL, -- 'past_tense', 'articles' etc
+    type TEXT NOT NULL, -- grammar, vocabulary, pronunciation
     original TEXT NOT NULL,
-    fixed TEXT NOT NULL,
+    corrected TEXT NOT NULL,
+    offset_pos INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 

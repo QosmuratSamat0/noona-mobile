@@ -30,11 +30,12 @@ func (uc *UseCase) GetTranscript(ctx context.Context, userID string, messageID s
 	return uc.repo.GetTranscriptByMessageID(ctx, messageID, userID)
 }
 
-func (uc *UseCase) SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*domain.Correction, error) {
+func (uc *UseCase) SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*domain.Correction, error) {
 	c := &domain.Correction{
 		TranscriptID:  transcriptID,
 		CorrectedText: correctedText,
 		Explanation:   explanation,
+		CEFRLevel:     cefrLevel,
 	}
 	err := uc.repo.SaveCorrection(ctx, c)
 	if err != nil {
@@ -47,20 +48,21 @@ func (uc *UseCase) GetCorrections(ctx context.Context, transcriptID string) ([]*
 	return uc.repo.GetCorrectionsByTranscriptID(ctx, transcriptID)
 }
 
-func (uc *UseCase) SaveMistake(ctx context.Context, userID, mistakeType, original, fixed string) (*domain.Mistake, error) {
-	m := &domain.Mistake{
-		UserID:   userID,
-		Type:     mistakeType,
-		Original: original,
-		Fixed:    fixed,
+func (uc *UseCase) SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*domain.MistakeModel, error) {
+	m := domain.MistakeModel{
+		UserID:    userID,
+		Type:      mistakeType,
+		Original:  original,
+		Corrected: corrected,
+		OffsetPos: offset,
 	}
-	err := uc.repo.SaveMistake(ctx, m)
+	err := uc.repo.CreateMistake(ctx, m)
 	if err != nil {
 		return nil, err
 	}
-	return m, nil
+	return &m, nil
 }
 
-func (uc *UseCase) GetUserMistakes(ctx context.Context, userID string) ([]*domain.Mistake, error) {
-	return uc.repo.GetUserMistakes(ctx, userID)
+func (uc *UseCase) GetUserMistakes(ctx context.Context, userID string) ([]*domain.MistakeModel, error) {
+	return uc.repo.GetMistakesByUserID(ctx, userID)
 }

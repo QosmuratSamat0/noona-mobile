@@ -37,10 +37,10 @@ type ChatUseCase interface {
 type LinguisticUseCase interface {
 	SaveTranscript(ctx context.Context, messageID, rawText string) (*linguisticDomain.Transcript, error)
 	GetTranscript(ctx context.Context, userID, messageID string) (*linguisticDomain.Transcript, error)
-	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation string) (*linguisticDomain.Correction, error)
+	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*linguisticDomain.Correction, error)
 	GetCorrections(ctx context.Context, transcriptID string) ([]*linguisticDomain.Correction, error)
-	SaveMistake(ctx context.Context, userID, mistakeType, original, fixed string) (*linguisticDomain.Mistake, error)
-	GetUserMistakes(ctx context.Context, userID string) ([]*linguisticDomain.Mistake, error)
+	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*linguisticDomain.MistakeModel, error)
+	GetUserMistakes(ctx context.Context, userID string) ([]*linguisticDomain.MistakeModel, error)
 }
 
 type ActivityUseCase interface {
