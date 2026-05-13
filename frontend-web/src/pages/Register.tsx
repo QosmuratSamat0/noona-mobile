@@ -32,6 +32,7 @@ export const Register = () => {
   };
 
   return (
+    <div className="auth-page-wrapper">
     <div className="auth-container">
       <div className="auth-header">
         <div className="auth-logo">
@@ -103,6 +104,7 @@ export const Register = () => {
           {loading ? 'Creating account...' : 'Create account'}
         </button>
       </form>
+    </div>
     </div>
   );
 };

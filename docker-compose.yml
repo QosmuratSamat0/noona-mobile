@@ -1,4 +1,4 @@
-﻿version: '3.8'
+version: '3.8'
 
 services:
   postgres:
@@ -37,7 +37,43 @@ services:
     volumes:
       - minio_data:/data
 
+  stt-service:
+    build:
+      context: ./ai-service/stt
+      dockerfile: Dockerfile
+    container_name: noona-stt
+    restart: always
+    ports:
+      - "8001:8001"   # HTTP (health + docs)
+      - "50051:50051" # gRPC (streaming STT)
+    environment:
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-auto}
+      WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-4}
+      GRPC_HOST: "0.0.0.0"
+      GRPC_PORT: "50051"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-password}
+      MINIO_USE_SSL: "false"
+      MINIO_DEFAULT_BUCKET: voice-input
+      VAD_ENABLED: "true"
+      VAD_THRESHOLD: "0.5"
+      LOG_LEVEL: info
+    depends_on:
+      - minio
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    volumes:
+      - stt_tmp:/tmp/noona_stt
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  stt_tmp:

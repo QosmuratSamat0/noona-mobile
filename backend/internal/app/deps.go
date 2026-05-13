@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	_ "github.com/QosmuratSamat0/Noona-AI/backend/docs"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/config"
 	"github.com/go-chi/chi/v5"
@@ -14,6 +16,8 @@ import (
 	chatModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/chat"
 	linguisticModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/linguistic"
 	userModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/user"
+
+	sttClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/stt"
 
 	activityRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/activity/postgres"
 	audioMinioRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/audio/minio"
@@ -29,9 +33,8 @@ import (
 	chatUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/chat"
 	linguisticUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/linguistic"
 	userUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/user"
-)
 
-import (
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/worker"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 )
@@ -45,6 +48,7 @@ type Deps struct {
 	LinguisticUseCase LinguisticUseCase
 	ActivityUseCase   ActivityUseCase
 	AudioUseCase      AudioUseCase
+	AudioWorker       *worker.AudioWorker
 	Hub               *wsHub.Hub
 	Redis             *redis.Client
 }
@@ -56,27 +60,51 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	chatRepo := chatRepo.New(db)
 	linguisticRepo := linguisticRepo.New(db)
 	activityRepo := activityRepo.New(db)
-	
+
 	audioStorage := audioMinioRepo.NewStorageRepo(minioClient, "voice-input")
 	audioJob := audioRedisRepo.NewJobRepo(redisClient)
 
 	// UseCases
-	userUseCase := userUseCase.NewUseCase(userRepo)
-	authUseCase := authUseCase.NewUseCase(userRepo, authRepo, cfg.JWTSecret)
-	activityUseCase := activityUseCase.NewUseCase(activityRepo)
-	chatUseCase := chatUseCase.NewUseCase(chatRepo, activityUseCase)
-	linguisticUseCase := linguisticUseCase.NewUseCase(linguisticRepo)
-	audioUseCase := audioUseCase.NewUseCase(audioStorage, audioJob, activityUseCase)
+	userUC := userUseCase.NewUseCase(userRepo)
+	authUC := authUseCase.NewUseCase(userRepo, authRepo, cfg.JWTSecret)
+	activityUC := activityUseCase.NewUseCase(activityRepo)
+	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC)
+	linguisticUC := linguisticUseCase.NewUseCase(linguisticRepo)
+	audioUC := audioUseCase.NewUseCase(audioStorage, audioJob, activityUC)
+
+	// AI infrastructure — gRPC client calls Python faster-whisper service
+	stt, err := sttClient.NewGRPCClient(
+		cfg.STTGRPCAddr,
+		minioClient,
+		"voice-input",
+	)
+	if err != nil {
+		// Log error but maybe don't fail entire app if STT is optional?
+		// For now we fail as it's a core dependency.
+		return nil, fmt.Errorf("failed to initialize stt grpc client: %w", err)
+	}
+
+	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
+	processor := audioUseCase.NewAudioProcessor(stt, nil, nil, hub)
+
+	// Worker pool — picks jobs from Redis queue and runs processor.
+	audioWorker := worker.NewAudioWorker(
+		redisClient,
+		processor,
+		cfg.AudioWorkerQueue,
+		cfg.AudioWorkerCount,
+	)
 
 	return &Deps{
 		Config:            cfg,
 		DB:                db,
-		UserUseCase:       userUseCase,
-		AuthUseCase:       authUseCase,
-		ChatUseCase:       chatUseCase,
-		LinguisticUseCase: linguisticUseCase,
-		ActivityUseCase:   activityUseCase,
-		AudioUseCase:      audioUseCase,
+		UserUseCase:       userUC,
+		AuthUseCase:       authUC,
+		ChatUseCase:       chatUC,
+		LinguisticUseCase: linguisticUC,
+		ActivityUseCase:   activityUC,
+		AudioUseCase:      audioUC,
+		AudioWorker:       audioWorker,
 		Hub:               hub,
 		Redis:             redisClient,
 	}, nil

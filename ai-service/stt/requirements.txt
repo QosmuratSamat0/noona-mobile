@@ -1,0 +1,24 @@
+# ── Core ─────────────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.1
+
+# ── ML / STT ─────────────────────────────────────────────────────────────────
+faster-whisper>=1.0.3
+torch>=2.3.0
+
+# ── gRPC (streaming STT) ─────────────────────────────────────────────────────
+grpcio>=1.80.0
+grpcio-tools>=1.80.0     # protoc compiler (run `make proto` to generate stubs)
+
+# ── Audio decoding (ENCODED format path) ─────────────────────────────────────
+soundfile>=0.12.1        # decode WebM/OGG/MP3 bytes; requires libsndfile + ffmpeg
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+minio>=7.2.7
+
+# ── Dev / Test ────────────────────────────────────────────────────────────────
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0

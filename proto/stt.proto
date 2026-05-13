@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package stt;
+
+option go_package = "github.com/QosmuratSamat0/Noona-AI/backend/pkg/pb/stt;sttpb";
+
+// ─── Audio format hint ──────────────────────────────────────────────────────
+enum AudioFormat {
+  ENCODED      = 0;  // WebM / OGG / MP3 — decode with ffmpeg (file streaming)
+  RAW_PCM_S16LE = 1; // Raw 16-kHz mono int16 — direct VAD (real-time mic)
+}
+
+// ─── Messages ───────────────────────────────────────────────────────────────
+message AudioChunk {
+  bytes       data         = 1;  // Audio payload
+  uint32      sample_rate  = 2;  // Hz; ignored for ENCODED format
+  AudioFormat format       = 3;
+  bool        end_of_stream = 4; // Signal: no more data, flush VAD buffer
+  string      language     = 5;  // ISO-639-1 or "" for auto-detect
+}
+
+message TranscriptResult {
+  string   text       = 1;  // Transcribed text
+  bool     is_final   = 2;  // true = VAD end-of-speech detected, Whisper ran
+  string   language   = 3;  // Detected language code
+  float    confidence = 4;  // Average log-prob proxy
+  repeated Segment segments = 5;
+}
+
+message Segment {
+  float  start = 1;
+  float  end   = 2;
+  string text  = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status       = 1;
+  string model_size   = 2;
+  string device       = 3;
+  string compute_type = 4;
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
+service STTService {
+  // Bidirectional stream: client sends AudioChunk, server responds with TranscriptResult.
+  // Multiple TranscriptResult messages may be emitted per stream (one per speech segment).
+  rpc TranscribeStream(stream AudioChunk) returns (stream TranscriptResult);
+
+  rpc Health(HealthRequest) returns (HealthResponse);
+}

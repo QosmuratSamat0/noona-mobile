@@ -1,0 +1,117 @@
+"""
+Application factory and lifespan manager.
+
+Startup order:
+  1. Load Settings
+  2. Load Whisper model (singleton)
+  3. Build MinIO adapter
+  4. Build TranscriptionService (HTTP, for file-based requests)
+  5. Start gRPC server as asyncio background task
+  6. Register HTTP router
+
+Shutdown: signal gRPC stop_event → graceful 5s drain.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.adapters.minio_adapter import MinioAdapter
+from app.adapters.whisper_model import load_model
+from app.config import get_settings
+from app.delivery.http.router import router
+from app.grpc_server import run_grpc_server
+from app.services.transcription_service import TranscriptionService
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=level.upper(),
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    _configure_logging(settings.log_level)
+
+    logger = logging.getLogger(__name__)
+    logger.info("STT service starting up…")
+
+    # 1. Load Whisper model (shared by HTTP + gRPC)
+    model_handle = load_model(settings)
+
+    # 2. Build MinIO adapter (used by HTTP endpoint)
+    minio = MinioAdapter(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        use_ssl=settings.minio_use_ssl,
+    )
+
+    # 3. HTTP transcription service (file-based, legacy path)
+    app.state.transcription_service = TranscriptionService(
+        model_handle=model_handle,
+        minio=minio,
+        settings=settings,
+    )
+
+    # 4. Start gRPC server as a background asyncio task
+    grpc_stop = asyncio.Event()
+    grpc_task = asyncio.create_task(
+        run_grpc_server(model_handle, settings, grpc_stop)
+    )
+
+    logger.info(
+        "STT ready: model=%s device=%s compute=%s grpc=:%d http=:%d",
+        model_handle.model_size,
+        model_handle.device,
+        model_handle.compute_type,
+        settings.grpc_port,
+        settings.port,
+    )
+
+    yield  # ← server handles requests
+
+    # Shutdown: stop gRPC, wait for drain
+    logger.info("STT service shutting down…")
+    grpc_stop.set()
+    await asyncio.wait_for(grpc_task, timeout=10)
+    logger.info("STT service stopped.")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Noona-AI STT Service",
+        description=(
+            "Dual-mode STT: HTTP (file path via MinIO) + gRPC streaming "
+            "(bidirectional with Silero VAD). Powered by faster-whisper."
+        ),
+        version="2.0.0",
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["POST", "GET"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(router)
+
+    @app.get("/health", tags=["Health"], include_in_schema=False)
+    async def root_health():
+        return {"status": "ok", "service": "stt"}
+
+    return app
+
+
+app = create_app()

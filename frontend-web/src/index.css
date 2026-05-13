@@ -1,5 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
-  --bg-color: #f0f2f5;
+  --bg-color: #09090f;
   --card-bg: #2d2d2d;
   --text-primary: #ffffff;
   --text-secondary: #a0a0a0;
@@ -20,11 +22,20 @@ body {
 }
 
 #root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Center auth pages since #root no longer centers everything */
+.auth-page-wrapper {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
   width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+  background: #09090f;
 }
 
 .auth-container {

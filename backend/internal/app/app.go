@@ -62,6 +62,9 @@ func NewApp(cfg *config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("failed to build deps: %w", err)
 	}
 
+	// Start the audio worker pool
+	deps.AudioWorker.Start()
+
 	router := chi.NewRouter()
 
 	router.Use(middleware.Logger)
@@ -126,6 +129,12 @@ func (a *App) Shutdown() error {
 
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		return err
+	}
+
+	// Drain the worker pool gracefully
+	if a.deps.AudioWorker != nil {
+		log.Println("Stopping audio worker pool...")
+		a.deps.AudioWorker.Stop()
 	}
 
 	if a.deps.DB != nil {
