@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -28,6 +29,8 @@ const (
 	// chunkSize is the gRPC message size for streaming audio bytes.
 	// 32 KB balances throughput vs. memory per concurrent stream.
 	chunkSize = 32 * 1024
+	// transcribeTimeout bounds STT calls so worker jobs cannot hang forever.
+	transcribeTimeout = 2 * time.Minute
 )
 
 // GRPCClient implements audio.STTService via the Python gRPC microservice.
@@ -85,40 +88,45 @@ func (c *GRPCClient) Close() error {
 //  3. Send end_of_stream sentinel
 //  4. Collect TranscriptResult messages; return final text
 func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, transcribeTimeout)
+	defer cancel()
+
 	// 1. Open gRPC stream
 	stream, err := c.client.TranscribeStream(ctx)
 	if err != nil {
 		return "", fmt.Errorf("stt grpc: open stream: %w", err)
 	}
 
-	// 2. Stream MinIO object in chunks (producer goroutine)
-	sendErr := make(chan error, 1)
-	go func() {
-		sendErr <- c.streamMinioObject(ctx, stream, filePath)
-	}()
-
-	// 3. Collect results (consumer — current goroutine)
 	finalText := ""
-	for {
-		result, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", fmt.Errorf("stt grpc: recv: %w", err)
-		}
-		slog.Info("stt grpc: partial result",
-			"is_final", result.IsFinal,
-			"language", result.Language,
-			"text_len", len(result.Text),
-		)
-		if result.IsFinal {
-			finalText = result.Text
-		}
-	}
+	group, groupCtx := errgroup.WithContext(ctx)
 
-	// 4. Check producer error
-	if err := <-sendErr; err != nil {
+	// 2. Stream MinIO object in chunks (producer goroutine)
+	group.Go(func() error {
+		return c.streamMinioObject(groupCtx, stream, filePath)
+	})
+
+	// 3. Collect results (consumer goroutine)
+	group.Go(func() error {
+		for {
+			result, recvErr := stream.Recv()
+			if recvErr == io.EOF {
+				return nil
+			}
+			if recvErr != nil {
+				return fmt.Errorf("stt grpc: recv: %w", recvErr)
+			}
+			slog.Info("stt grpc: partial result",
+				"is_final", result.IsFinal,
+				"language", result.Language,
+				"text_len", len(result.Text),
+			)
+			if result.IsFinal {
+				finalText = result.Text
+			}
+		}
+	})
+
+	if err := group.Wait(); err != nil {
 		return "", err
 	}
 
