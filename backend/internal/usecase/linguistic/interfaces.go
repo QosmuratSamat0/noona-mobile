@@ -15,4 +15,6 @@ type LinguisticRepo interface {
 
 	CreateMistake(ctx context.Context, m domain.MistakeModel) error
 	GetMistakesByUserID(ctx context.Context, userID string) ([]*domain.MistakeModel, error)
+
+	UpdateCEFRLevel(ctx context.Context, userID string, level string) error
 }

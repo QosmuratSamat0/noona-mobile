@@ -66,3 +66,7 @@ func (uc *UseCase) SaveMistake(ctx context.Context, userID, mistakeType, origina
 func (uc *UseCase) GetUserMistakes(ctx context.Context, userID string) ([]*domain.MistakeModel, error) {
 	return uc.repo.GetMistakesByUserID(ctx, userID)
 }
+
+func (uc *UseCase) UpdateCEFRLevel(ctx context.Context, userID, level string) error {
+	return uc.repo.UpdateCEFRLevel(ctx, userID, level)
+}

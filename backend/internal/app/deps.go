@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	_ "github.com/QosmuratSamat0/Noona-AI/backend/docs"
@@ -17,6 +18,7 @@ import (
 	linguisticModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/linguistic"
 	userModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/user"
 
+	gemini "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/llm/gemini"
 	sttClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/stt"
 
 	activityRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/activity/postgres"
@@ -79,13 +81,17 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		"voice-input",
 	)
 	if err != nil {
-		// Log error but maybe don't fail entire app if STT is optional?
-		// For now we fail as it's a core dependency.
 		return nil, fmt.Errorf("failed to initialize stt grpc client: %w", err)
 	}
 
+	// Gemini LLM provider — calls Google Gemini API for deep analysis
+	llm, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, "gemini-1.5-flash")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize gemini provider: %w", err)
+	}
+
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
-	processor := audioUseCase.NewAudioProcessor(stt, nil, nil, hub)
+	processor := audioUseCase.NewAudioProcessor(stt, llm, nil, hub, linguisticUC)
 
 	// Worker pool — picks jobs from Redis queue and runs processor.
 	audioWorker := worker.NewAudioWorker(

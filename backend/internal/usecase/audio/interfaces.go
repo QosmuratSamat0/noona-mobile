@@ -21,17 +21,22 @@ type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
 }
 
+type LinguisticUseCase interface {
+	SaveTranscript(ctx context.Context, messageID, rawText string) (*linguistic.Transcript, error)
+	GetTranscript(ctx context.Context, userID, messageID string) (*linguistic.Transcript, error)
+	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*linguistic.Correction, error)
+	GetCorrections(ctx context.Context, transcriptID string) ([]*linguistic.Correction, error)
+	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*linguistic.MistakeModel, error)
+	GetUserMistakes(ctx context.Context, userID string) ([]*linguistic.MistakeModel, error)
+	UpdateCEFRLevel(ctx context.Context, userID, level string) error
+}
+
 type STTService interface {
 	Transcribe(ctx context.Context, audioPath string) (string, error)
 }
 
 type LLMProvider interface {
-	// StreamReply возвращает канал с текстом ответа в реальном времени.
-	// Это нужно для быстрого вывода в UI и озвучки.
 	StreamReply(ctx context.Context, transcript string) (<-chan string, error)
-
-	// Analyze выполняет тяжелый семантический разбор.
-	// Возвращает структуру Analysis (обычно через JSON Mode).
 	Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error)
 }
 

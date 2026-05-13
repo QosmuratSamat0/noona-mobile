@@ -26,27 +26,23 @@ type MistakeModel struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// AI Analysis Models
 
-// AIMistake описывает конкретную ошибку в речи пользователя
 type AIMistake struct {
-	Original  string `json:"original"`  // Как сказал пользователь
-	Corrected string `json:"corrected"` // Как правильно
+	Original  string `json:"original"`
+	Corrected string `json:"corrected"`
 	Type      string `json:"type"`      // Тип: grammar, vocabulary, pronunciation
 	Offset    int    `json:"offset"`    // Позиция в тексте (для подсветки в UI)
 }
 
-// AIAnalysis — итоговый результат глубокого разбора фразы
 type AIAnalysis struct {
-	Correction  string      `json:"correction"`  // Полный исправленный текст
-	Explanation string      `json:"explanation"` // Объяснение правил простыми словами
-	CEFRLevel   string      `json:"cefr_level"`  // Оценка уровня (A1-C2)
-	Mistakes    []AIMistake `json:"mistakes"`    // Список конкретных ошибок
-	Suggested   []string    `json:"suggested"`   // Варианты, что ответить пользователю дальше
+	Correction  string      `json:"correction"`  
+	Explanation string      `json:"explanation"`
+	CEFRLevel   string      `json:"cefr_level"`
+	Mistakes    []AIMistake `json:"mistakes"`    
+	Suggested   []string    `json:"suggested"`
 }
 
-// ResponseChunk — единица данных для UI-стриминга
 type ResponseChunk struct {
-	Text    string `json:"text"`     // Кусочек текста
-	IsFinal bool   `json:"is_final"` // Флаг завершения мысли
+	Text    string `json:"text"`     
+	IsFinal bool   `json:"is_final"` 
 }
