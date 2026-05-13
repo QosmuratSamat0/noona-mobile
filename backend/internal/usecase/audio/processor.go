@@ -47,7 +47,8 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 	g.Go(func() error {
 		replyChan, err := p.llm.StreamReply(gCtx, transcript)
 		if err != nil {
-			return fmt.Errorf("stream reply failed: %w", err)
+			slog.Warn("stream reply failed; continuing without streaming", "job_id", job.JobID, "user_id", job.UserID, "error", err)
+			return nil
 		}
 
 		for text := range replyChan {
