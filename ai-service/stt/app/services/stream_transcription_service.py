@@ -5,7 +5,7 @@ Implements STTServiceServicer from generated stubs.
 All business logic lives in adapters (VAD, Whisper); this class only wires them.
 
 ENCODED audio path  (AudioFormat.ENCODED = 0):
-  Accumulates raw file bytes → decodes to PCM via soundfile/ffmpeg →
+  Accumulates raw file bytes → decodes to PCM via ffmpeg →
   runs full VAD+Whisper on the decoded buffer.
 
 RAW_PCM_S16LE path  (AudioFormat.RAW_PCM_S16LE = 1):
@@ -15,12 +15,11 @@ RAW_PCM_S16LE path  (AudioFormat.RAW_PCM_S16LE = 1):
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
+import subprocess
 from typing import AsyncIterator
 
 import numpy as np
-import soundfile as sf
 import grpc
 
 # Generated stubs (run `make proto` to create these files)
@@ -34,21 +33,44 @@ logger = logging.getLogger(__name__)
 
 
 def _decode_encoded_audio(raw_bytes: bytes, sample_rate: int = 16_000) -> np.ndarray:
-    """Decode WebM/OGG/MP3 bytes → float32 16-kHz mono PCM (via soundfile+ffmpeg)."""
-    buf = io.BytesIO(raw_bytes)
-    audio, sr = sf.read(buf, dtype="float32", always_2d=False)
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)  # stereo → mono
-    if sr != sample_rate:
-        # Simple resample using numpy (good enough for Whisper)
-        ratio = sample_rate / sr
-        n = int(len(audio) * ratio)
-        audio = np.interp(
-            np.linspace(0, len(audio), n),
-            np.arange(len(audio)),
-            audio,
+    """Decode compressed audio bytes to float32 mono PCM using ffmpeg."""
+    if not raw_bytes:
+        return np.array([], dtype=np.float32)
+
+    cmd = [
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        str(sample_rate),
+        "-ac",
+        "1",
+        "pipe:1",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=raw_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
         )
-    return audio.astype(np.float32)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg not found") from exc
+    except subprocess.CalledProcessError as exc:
+        err = exc.stderr.decode("utf-8", errors="ignore").strip()
+        raise ValueError(f"ffmpeg decode failed: {err or 'unknown error'}") from exc
+
+    pcm = np.frombuffer(proc.stdout, dtype=np.int16)
+    if pcm.size == 0:
+        return np.array([], dtype=np.float32)
+    return (pcm.astype(np.float32) / 32768.0).astype(np.float32)
 
 
 def _whisper_on_array(

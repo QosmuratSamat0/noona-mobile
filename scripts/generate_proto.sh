@@ -22,8 +22,9 @@ python -m grpc_tools.protoc \
   "$PROTO_FILE"
 
 # Fix relative imports in generated files (grpc_tools quirk)
-sed -i 's/^import stt_pb2/from app.proto import stt_pb2/' \
-  "$PYTHON_OUT/stt_pb2_grpc.py"
+PY_STUB="$PYTHON_OUT/stt_pb2_grpc.py"
+sed -i.bak 's/^import stt_pb2/from app.proto import stt_pb2/' "$PY_STUB"
+rm -f "${PY_STUB}.bak"
 
 echo "Python stubs generated."
 
