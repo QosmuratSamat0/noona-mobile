@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     whisper_cpu_threads: int = Field(default=2, ge=1)
     # Number of workers inside CTranslate2 (1 = sequential, safe for low-RAM)
     whisper_num_workers: int = Field(default=1, ge=1)
+    # Language hint for short recordings. Empty string enables auto-detect.
+    whisper_language: str = Field(default="en")
+    # Beam size 1 is much faster on CPU and good enough for short voice notes.
+    whisper_beam_size: int = Field(default=1, ge=1, le=10)
 
     # ── VAD ──────────────────────────────────────────────────────────────────
     vad_enabled: bool = Field(default=True)

@@ -1,244 +1,72 @@
 """
-gRPC servicer — delivery layer.
+STTServicer — gRPC delivery layer.
 
-Implements STTServiceServicer from generated stubs.
-All business logic lives in adapters (VAD, Whisper); this class only wires them.
+Implements STTServiceServicer from generated protobuf stubs.
+Handles two audio formats per-stream:
 
-ENCODED audio path  (AudioFormat.ENCODED = 0):
-  Accumulates raw file bytes → decodes to PCM via ffmpeg →
-  runs full VAD+Whisper on the decoded buffer.
+  ENCODED (0)      — WebM / OGG / MP3 bytes streamed from Go (file-based).
+                     Accumulated into a temp file, decoded by ffmpeg, then
+                     passed to Whisper in one shot after end_of_stream.
 
-RAW_PCM_S16LE path  (AudioFormat.RAW_PCM_S16LE = 1):
-  Feeds each chunk through VADRingBuffer → Whisper fires when VAD detects
-  end of speech. Enables true real-time partial results.
+  RAW_PCM_S16LE (1) — Raw 16-kHz mono int16 bytes (real-time mic).
+                     Fed chunk-by-chunk through Silero VAD; each detected
+                     speech segment is transcribed immediately and streamed
+                     back as a partial TranscriptResult.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
+import os
+import tempfile
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncIterator
 
-import numpy as np
 import grpc
+import numpy as np
 
-# Generated stubs (run `make proto` to create these files)
-from app.proto import stt_pb2, stt_pb2_grpc
 from app.adapters.vad_processor import VADRingBuffer, load_silero_vad
-from app.adapters.ffmpeg_decoder import StreamingDecoder
 from app.adapters.whisper_model import ModelHandle, run_transcription
 from app.config import Settings
+from app.proto import stt_pb2, stt_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
-
-def _decode_encoded_audio(raw_bytes: bytes, sample_rate: int = 16_000) -> np.ndarray:
-    """Decode compressed audio bytes to float32 mono PCM using ffmpeg."""
-    if not raw_bytes:
-        return np.array([], dtype=np.float32)
-
-    cmd = [
-        "ffmpeg",
-        "-loglevel",
-        "error",
-        "-i",
-        "pipe:0",
-        "-f",
-        "s16le",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        str(sample_rate),
-        "-ac",
-        "1",
-        "pipe:1",
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=raw_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            "ffmpeg not found. Install it with 'apt-get install ffmpeg' (Linux) or "
-            "'brew install ffmpeg' (macOS), or 'choco install ffmpeg' (Windows), "
-            "then ensure it is available in PATH"
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        err = exc.stderr.decode("utf-8", errors="ignore").strip()
-        raise ValueError(f"ffmpeg decode failed: {err or 'unknown error'}") from exc
-
-    pcm = np.frombuffer(proc.stdout, dtype=np.int16)
-    if pcm.size == 0:
-        return np.array([], dtype=np.float32)
-    return pcm.astype(np.float32) / 32768.0
-
-
-def _whisper_on_array(
-    handle: ModelHandle,
-    audio: np.ndarray,
-    language: str | None,
-    beam_size: int = 5,
-) -> stt_pb2.TranscriptResult:
-    """Run faster-whisper on a float32 audio array and return a TranscriptResult."""
-    segments_iter, info = handle.model.transcribe(
-        audio,
-        language=language or None,
-        beam_size=beam_size,
-        vad_filter=False,  # VAD already applied upstream
-    )
-
-    segments_out: list[stt_pb2.Segment] = []
-    text_parts: list[str] = []
-    avg_logprob = 0.0
-    count = 0
-
-    for seg in segments_iter:
-        text_parts.append(seg.text.strip())
-        avg_logprob += seg.avg_logprob
-        count += 1
-        segments_out.append(
-            stt_pb2.Segment(start=seg.start, end=seg.end, text=seg.text.strip())
-        )
-
-    confidence = avg_logprob / count if count else 0.0
-
-    return stt_pb2.TranscriptResult(
-        text=" ".join(text_parts),
-        is_final=True,
-        language=info.language,
-        confidence=confidence,
-        segments=segments_out,
-    )
+_SAMPLE_RATE = 16_000  # Whisper / Silero requirement
 
 
 class STTServicer(stt_pb2_grpc.STTServiceServicer):
     """
-    gRPC servicer — one instance shared across all connections.
-    VADRingBuffer is instantiated per-stream (per TranscribeStream call).
+    gRPC servicer for real-time and file-based speech-to-text.
+    One instance is shared across all concurrent streams.
     """
 
     def __init__(self, model_handle: ModelHandle, settings: Settings) -> None:
         self._model = model_handle
         self._settings = settings
-        # Silero VAD model is also a singleton; load once
-        self._vad_model, _ = load_silero_vad()
+        self._executor = ThreadPoolExecutor(max_workers=settings.whisper_num_workers)
 
-    # ── TranscribeStream ──────────────────────────────────────────────────────
-
-    async def TranscribeStream(
-        self,
-        request_iterator: AsyncIterator[stt_pb2.AudioChunk],
-        context: grpc.aio.ServicerContext,
-    ):
-        """
-        Bidirectional streaming RPC.
-        Client sends AudioChunk messages; server yields TranscriptResult messages.
-        """
-        language: str | None = None
-        audio_format: int | None = None
-        
-        vad: VADRingBuffer | None = None
-        decoder: StreamingDecoder | None = None
-        
-        # Queue for speech segments found by the background reader or the main loop
-        speech_queue: asyncio.Queue[np.ndarray] = asyncio.Queue()
-        
-        async def ffmpeg_reader():
-            """Background task to read from FFmpeg and push to VAD."""
-            nonlocal vad
-            if not decoder or not vad:
-                return
-            try:
-                while True:
-                    pcm_bytes = await decoder.read(8192)
-                    if not pcm_bytes:  # EOF
-                        break
-                    speech = vad.push(pcm_bytes)
-                    if speech is not None:
-                        await speech_queue.put(speech)
-            except Exception as e:
-                logger.error("Error in ffmpeg_reader: %s", e)
-
-        reader_task: asyncio.Task | None = None
-
+        # Load Silero VAD once (shared, stateless model weights).
+        # Falls back gracefully if torchaudio / silero-vad is unavailable —
+        # RAW_PCM streams will use Whisper's built-in VAD filter instead.
+        self._vad_model = None
         try:
-            async for chunk in request_iterator:
-                # 1. Initialize state on first chunk
-                if chunk.language and language is None:
-                    language = chunk.language
-                
-                if audio_format is None and chunk.format != 0: # 0 is often default/unset, check proto
-                    # Actually let's just check the explicit format
-                    audio_format = chunk.format
+            self._vad_model, _ = load_silero_vad()
+            logger.info("Silero VAD loaded successfully.")
+        except Exception as exc:
+            logger.warning(
+                "Silero VAD not available (%s). RAW_PCM streams will use "
+                "Whisper built-in VAD instead.",
+                exc,
+            )
 
-                # Default to ENCODED if still not set
-                if audio_format is None:
-                    audio_format = stt_pb2.AudioFormat.Value("ENCODED")
+        logger.info("STTServicer initialised (device=%s)", model_handle.device)
 
-                # 2. Setup VAD and Decoder if needed
-                if vad is None:
-                    vad = VADRingBuffer(
-                        model=self._vad_model,
-                        threshold=self._settings.vad_threshold,
-                        sample_rate=chunk.sample_rate or 16_000,
-                    )
-                
-                if audio_format == stt_pb2.AudioFormat.Value("ENCODED") and decoder is None:
-                    decoder = StreamingDecoder(sample_rate=chunk.sample_rate or 16_000)
-                    await decoder.start()
-                    reader_task = asyncio.create_task(ffmpeg_reader())
-
-                # 3. Process data
-                if audio_format == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
-                    if chunk.data:
-                        speech = vad.push(chunk.data)
-                        if speech is not None:
-                            await speech_queue.put(speech)
-                else:
-                    # ENCODED path
-                    if chunk.data:
-                        await decoder.push(chunk.data)
-
-                # 4. Yield any ready results from the queue
-                while not speech_queue.empty():
-                    speech = await speech_queue.get()
-                    logger.info("VAD: speech segment ready (%.2fs)", len(speech) / 16_000)
-                    result = _whisper_on_array(self._model, speech, language)
-                    yield result
-
-                if chunk.end_of_stream:
-                    break
-
-            # ── End of Stream ──────────────────────────────────────────────────
-            
-            # Close decoder and wait for reader to finish
-            if decoder:
-                await decoder.stop()
-            if reader_task:
-                await reader_task
-
-            # Final flush of VAD
-            if vad:
-                speech = vad.flush()
-                if speech is not None:
-                    logger.info("VAD: final speech segment ready (%.2fs)", len(speech) / 16_000)
-                    result = _whisper_on_array(self._model, speech, language)
-                    yield result
-
-        except Exception as e:
-            logger.exception("Error in TranscribeStream: %s", e)
-            await context.abort(grpc.StatusCode.INTERNAL, str(e))
-        finally:
-            if decoder:
-                await decoder.stop()
-            if reader_task and not reader_task.done():
-                reader_task.cancel()
-
-    # ── Health ────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Health RPC
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def Health(
         self,
@@ -251,3 +79,289 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
             device=self._model.device,
             compute_type=self._model.compute_type,
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # TranscribeStream RPC
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def TranscribeStream(
+        self,
+        request_iterator: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext,
+    ) -> AsyncIterator[stt_pb2.TranscriptResult]:
+        """
+        Bidirectional streaming RPC.
+        Dispatches to the correct handler based on the first chunk's format.
+        """
+        # We need to peek at the first chunk to decide the format.
+        first_chunk: stt_pb2.AudioChunk | None = None
+        async for chunk in request_iterator:
+            first_chunk = chunk
+            break
+
+        if first_chunk is None:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "empty stream")
+            return
+
+        fmt = first_chunk.format  # stt_pb2.AudioFormat value (int)
+
+        if fmt == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
+            async for result in self._handle_raw_pcm(
+                first_chunk, request_iterator, context
+            ):
+                yield result
+        else:
+            # Default: ENCODED (WebM / OGG / MP3)
+            async for result in self._handle_encoded(
+                first_chunk, request_iterator, context
+            ):
+                yield result
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENCODED handler — accumulate → temp file → Whisper
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _handle_encoded(
+        self,
+        first_chunk: stt_pb2.AudioChunk,
+        request_iterator,
+        context: grpc.aio.ServicerContext,
+    ) -> AsyncIterator[stt_pb2.TranscriptResult]:
+        """
+        Collect all ENCODED audio bytes into a temp file, then run Whisper.
+        Yields a single final TranscriptResult.
+        """
+        tmp_dir = self._settings.tmp_dir
+        os.makedirs(tmp_dir, exist_ok=True)
+        tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.audio")
+
+        language = first_chunk.language or (self._settings.whisper_language or None)
+
+        try:
+            # ── Accumulate bytes ──────────────────────────────────────────────
+            with open(tmp_path, "wb") as f:
+                if first_chunk.data:
+                    f.write(first_chunk.data)
+
+                if not first_chunk.end_of_stream:
+                    async for chunk in request_iterator:
+                        if chunk.language and not language:
+                            language = chunk.language
+                        if chunk.data:
+                            f.write(chunk.data)
+                        if chunk.end_of_stream:
+                            break
+
+            # ── Transcribe in thread pool (blocking) ──────────────────────────
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                self._executor,
+                self._transcribe_file,
+                tmp_path,
+                language,
+            )
+
+            if result is not None:
+                yield result
+
+        except Exception as exc:
+            logger.exception("Error in _handle_encoded")
+            await context.abort(grpc.StatusCode.INTERNAL, str(exc))
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def _transcribe_file(
+        self,
+        audio_path: str,
+        language: str | None,
+    ) -> stt_pb2.TranscriptResult | None:
+        """Blocking: run faster-whisper on a local file."""
+        try:
+            segments_iter, info = run_transcription(
+                handle=self._model,
+                audio_path=audio_path,
+                language=language or None,
+                beam_size=self._settings.whisper_beam_size,
+                vad_filter=self._settings.vad_enabled,
+                vad_threshold=self._settings.vad_threshold,
+            )
+
+            text_parts: list[str] = []
+            proto_segments: list[stt_pb2.Segment] = []
+            total_logprob = 0.0
+            count = 0
+
+            for seg in segments_iter:
+                text = seg.text.strip()
+                if text:
+                    text_parts.append(text)
+                    proto_segments.append(
+                        stt_pb2.Segment(
+                            start=seg.start,
+                            end=seg.end,
+                            text=text,
+                        )
+                    )
+                    total_logprob += seg.avg_logprob
+                    count += 1
+
+            full_text = " ".join(text_parts)
+            confidence = (total_logprob / count) if count else 0.0
+
+            logger.info(
+                "Transcription complete: lang=%s text_len=%d segments=%d",
+                info.language,
+                len(full_text),
+                count,
+            )
+
+            return stt_pb2.TranscriptResult(
+                text=full_text,
+                is_final=True,
+                language=info.language,
+                confidence=confidence,
+                segments=proto_segments,
+            )
+
+        except Exception as exc:
+            logger.exception("Whisper transcription failed: %s", exc)
+            return None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # RAW_PCM_S16LE handler — VAD → Whisper (streaming, real-time)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _handle_raw_pcm(
+        self,
+        first_chunk: stt_pb2.AudioChunk,
+        request_iterator,
+        context: grpc.aio.ServicerContext,
+    ) -> AsyncIterator[stt_pb2.TranscriptResult]:
+        """
+        Feed raw PCM chunks through Silero VAD.
+        Each detected speech segment triggers a Whisper run and a partial result.
+        end_of_stream flushes the VAD buffer.
+        """
+        language = first_chunk.language or (self._settings.whisper_language or None)
+        loop = asyncio.get_running_loop()
+
+        if self._vad_model is not None:
+            # ── Path A: Silero VAD available ──────────────────────────────────
+            vad = VADRingBuffer(
+                model=self._vad_model,
+                threshold=self._settings.vad_threshold,
+            )
+
+            async def process_chunk_vad(chunk: stt_pb2.AudioChunk):
+                nonlocal language
+                if chunk.language and not language:
+                    language = chunk.language
+                if chunk.end_of_stream:
+                    audio = vad.flush()
+                elif chunk.data:
+                    audio = vad.push(chunk.data)
+                else:
+                    return None
+                if audio is None:
+                    return None
+                return await loop.run_in_executor(
+                    self._executor, self._transcribe_pcm, audio, language
+                )
+
+            try:
+                result = await process_chunk_vad(first_chunk)
+                if result:
+                    yield result
+                if not first_chunk.end_of_stream:
+                    async for chunk in request_iterator:
+                        result = await process_chunk_vad(chunk)
+                        if result:
+                            yield result
+                        if chunk.end_of_stream:
+                            break
+            except Exception as exc:
+                logger.exception("Error in _handle_raw_pcm (VAD path)")
+                await context.abort(grpc.StatusCode.INTERNAL, str(exc))
+        else:
+            # ── Path B: No Silero VAD — accumulate all PCM and run Whisper once
+            pcm_chunks: list[bytes] = []
+            if first_chunk.data:
+                pcm_chunks.append(first_chunk.data)
+            if not first_chunk.end_of_stream:
+                async for chunk in request_iterator:
+                    if chunk.language and not language:
+                        language = chunk.language
+                    if chunk.data:
+                        pcm_chunks.append(chunk.data)
+                    if chunk.end_of_stream:
+                        break
+
+            if not pcm_chunks:
+                return
+
+            raw_bytes = b"".join(pcm_chunks)
+            audio = (
+                np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            )
+
+            try:
+                result = await loop.run_in_executor(
+                    self._executor, self._transcribe_pcm, audio, language
+                )
+                if result:
+                    yield result
+            except Exception as exc:
+                logger.exception("Error in _handle_raw_pcm (no-VAD path)")
+                await context.abort(grpc.StatusCode.INTERNAL, str(exc))
+
+    def _transcribe_pcm(
+        self,
+        audio: np.ndarray,
+        language: str | None,
+    ) -> stt_pb2.TranscriptResult | None:
+        """Blocking: transcribe a float32 numpy array via faster-whisper."""
+        try:
+            segments_iter, info = self._model.model.transcribe(
+                audio,
+                language=language or None,
+                beam_size=self._settings.whisper_beam_size,
+                word_timestamps=False,
+            )
+
+            text_parts: list[str] = []
+            proto_segments: list[stt_pb2.Segment] = []
+            total_logprob = 0.0
+            count = 0
+
+            for seg in segments_iter:
+                text = seg.text.strip()
+                if text:
+                    text_parts.append(text)
+                    proto_segments.append(
+                        stt_pb2.Segment(start=seg.start, end=seg.end, text=text)
+                    )
+                    total_logprob += seg.avg_logprob
+                    count += 1
+
+            full_text = " ".join(text_parts)
+            confidence = (total_logprob / count) if count else 0.0
+
+            logger.info(
+                "PCM transcription: lang=%s text_len=%d", info.language, len(full_text)
+            )
+
+            return stt_pb2.TranscriptResult(
+                text=full_text,
+                is_final=True,
+                language=info.language,
+                confidence=confidence,
+                segments=proto_segments,
+            )
+
+        except Exception as exc:
+            logger.exception("PCM transcription failed: %s", exc)
+            return None

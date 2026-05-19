@@ -27,7 +27,11 @@ async def run_grpc_server(
     Create and serve the gRPC server until stop_event is set.
     Designed to run as an asyncio task alongside uvicorn.
     """
-    servicer = STTServicer(model_handle=model_handle, settings=settings)
+    try:
+        servicer = STTServicer(model_handle=model_handle, settings=settings)
+    except Exception as e:
+        logger.error("CRITICAL: Failed to initialize STTServicer: %s", e, exc_info=True)
+        return
 
     server = aio.server(
         options=[

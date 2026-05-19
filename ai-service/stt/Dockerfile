@@ -36,10 +36,11 @@ COPY . .
 
 # Non-root user for security
 RUN adduser --disabled-password --gecos "" stt
-USER stt
 
-# Pre-create the tmp dir with correct permissions
-RUN mkdir -p /tmp/noona_stt
+# Pre-create writable runtime/cache dirs with correct permissions.
+RUN mkdir -p /tmp/noona_stt /home/stt/.cache/huggingface /home/stt/.cache/torch \
+    && chown -R stt:stt /tmp/noona_stt /home/stt/.cache
+USER stt
 
 # Expose port and set env defaults
 ENV HOST=0.0.0.0 \

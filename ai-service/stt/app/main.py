@@ -18,7 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.minio_adapter import MinioAdapter
@@ -68,6 +68,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     grpc_task = asyncio.create_task(
         run_grpc_server(model_handle, settings, grpc_stop)
     )
+    app.state.grpc_ready = False
+    app.state.grpc_error = None
+
+    def mark_grpc_done(task: asyncio.Task) -> None:
+        app.state.grpc_ready = False
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            app.state.grpc_error = str(exc)
+            logger.error(
+                "gRPC server task failed: %s",
+                exc,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+        elif not grpc_stop.is_set():
+            app.state.grpc_error = "gRPC server task exited unexpectedly"
+            logger.error("gRPC server task exited unexpectedly")
+
+    grpc_task.add_done_callback(mark_grpc_done)
+    await asyncio.sleep(0)
+    app.state.grpc_ready = not grpc_task.done()
 
     logger.info(
         "STT ready: model=%s device=%s compute=%s grpc=:%d http=:%d",
@@ -108,8 +131,18 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     @app.get("/health", tags=["Health"], include_in_schema=False)
-    async def root_health():
-        return {"status": "ok", "service": "stt"}
+    async def root_health(response: Response):
+        grpc_ready = bool(getattr(app.state, "grpc_ready", False))
+        grpc_error = getattr(app.state, "grpc_error", None)
+        if not grpc_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {
+                "status": "degraded",
+                "service": "stt",
+                "grpc": "down",
+                "error": grpc_error,
+            }
+        return {"status": "ok", "service": "stt", "grpc": "ok"}
 
     return app
 
