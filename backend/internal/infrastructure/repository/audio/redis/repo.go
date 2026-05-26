@@ -10,12 +10,14 @@ import (
 )
 
 type JobRepo struct {
-	client *redis.Client
+	client    *redis.Client
+	queueName string
 }
 
-func NewJobRepo(client *redis.Client) *JobRepo {
+func NewJobRepo(client *redis.Client, queueName string) *JobRepo {
 	return &JobRepo{
-		client: client,
+		client:    client,
+		queueName: queueName,
 	}
 }
 
@@ -25,7 +27,7 @@ func (r *JobRepo) CreateJob(ctx context.Context, job audio.Job) error {
 		return fmt.Errorf("failed to marshal job: %w", err)
 	}
 
-	err = r.client.RPush(ctx, "audio_jobs", data).Err()
+	err = r.client.RPush(ctx, r.queueName, data).Err()
 	if err != nil {
 		return fmt.Errorf("failed to push job to redis: %w", err)
 	}

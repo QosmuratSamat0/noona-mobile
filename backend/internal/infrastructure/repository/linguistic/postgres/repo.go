@@ -20,12 +20,16 @@ func New(db *pgxpool.Pool) *PostgresRepo {
 
 func (r *PostgresRepo) SaveTranscript(ctx context.Context, t *domain.Transcript) error {
 	query := `INSERT INTO transcripts (message_id, raw_text) VALUES ($1, $2) RETURNING id`
-	return r.db.QueryRow(ctx, query, t.MessageID, t.RawText).Scan(&t.ID)
+	var messageID any
+	if t.MessageID != "" {
+		messageID = t.MessageID
+	}
+	return r.db.QueryRow(ctx, query, messageID, t.RawText).Scan(&t.ID)
 }
 
 func (r *PostgresRepo) GetTranscriptByMessageID(ctx context.Context, messageID string, userID string) (*domain.Transcript, error) {
 	query := `
-		SELECT t.id, t.message_id, t.raw_text 
+		SELECT t.id, t.message_id, t.raw_text
 		FROM transcripts t
 		JOIN messages m ON t.message_id = m.id
 		JOIN sessions s ON m.session_id = s.id

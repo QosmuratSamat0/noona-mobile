@@ -42,6 +42,7 @@ type LLMProvider interface {
 
 type TTSService interface {
 	GenerateAudio(ctx context.Context, text string) (string, error)
+	StreamSpeech(ctx context.Context, text string) (<-chan []byte, <-chan string, error)
 }
 
 type WSPusher interface {

@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { useAudioStore } from '../store/audioStore';
+import { useAuthStore } from '../store/authStore';
 import api from '../lib/axios';
 
 export function useAudioRecorder() {
@@ -7,16 +8,65 @@ export function useAudioRecorder() {
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const { setStatus, setJobId, setCorrection, tickTimer, resetTimer, status } = useAudioStore();
+  const accessToken = useAuthStore((s) => s.accessToken);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopStream();
       if (timerRef.current) clearInterval(timerRef.current);
+      wsRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+    const wsUrl = new URL(apiBase);
+    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl.pathname = `${wsUrl.pathname.replace(/\/$/, '')}/ws/chat`;
+    wsUrl.searchParams.set('token', accessToken);
+
+    const ws = new WebSocket(wsUrl.toString());
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      String(event.data)
+        .split('\n')
+        .filter(Boolean)
+        .forEach((payload) => {
+          try {
+            const message = JSON.parse(payload);
+            if (message.type !== 'audio_processing_result') return;
+
+            const data = message.data ?? {};
+            const analysis = data.analysis ?? {};
+            setCorrection({
+              transcript: data.transcript,
+              grammar: analysis.correction
+                ? { original: data.transcript, corrected: analysis.correction }
+                : undefined,
+            });
+            setStatus('idle');
+          } catch (err) {
+            console.error('Failed to parse websocket message:', err);
+          }
+        });
+    };
+
+    ws.onerror = (err) => {
+      console.error('Audio websocket error:', err);
+    };
+
+    return () => {
+      ws.close();
+      if (wsRef.current === ws) wsRef.current = null;
+    };
+  }, [accessToken, setCorrection, setStatus]);
 
   const stopStream = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -74,7 +124,7 @@ export function useAudioRecorder() {
   const uploadAudio = async (blob: Blob) => {
     try {
       const formData = new FormData();
-      formData.append('audio', blob, 'recording.webm');
+      formData.append('file', blob, 'recording.webm');
 
       const res = await api.post<{ job_id: string }>('/audio/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -83,53 +133,10 @@ export function useAudioRecorder() {
       const { job_id } = res.data;
       setJobId(job_id);
       setStatus('processing');
-      pollJobStatus(job_id);
     } catch (err) {
       console.error('Upload failed:', err);
       setStatus('idle');
     }
-  };
-
-  const pollJobStatus = async (jobId: string) => {
-    const maxAttempts = 30;
-    let attempts = 0;
-
-    const poll = async () => {
-      try {
-        const res = await api.get<{
-          status: string;
-          result?: {
-            transcript?: string;
-            grammar?: { original: string; corrected: string };
-            pronunciation?: { original: string; phonetic: string };
-          };
-        }>(`/audio/status/${jobId}`);
-
-        const { status: jobStatus, result } = res.data;
-
-        if (jobStatus === 'done' && result) {
-          setCorrection({
-            transcript: result.transcript,
-            grammar: result.grammar,
-            pronunciation: result.pronunciation,
-          });
-          setStatus('idle');
-          return;
-        }
-
-        if (jobStatus === 'failed' || attempts >= maxAttempts) {
-          setStatus('idle');
-          return;
-        }
-
-        attempts++;
-        setTimeout(poll, 2000);
-      } catch {
-        setStatus('idle');
-      }
-    };
-
-    poll();
   };
 
   return { startRecording, stopRecording };

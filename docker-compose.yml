@@ -51,6 +51,8 @@ services:
       WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-auto}
       WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-4}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-en}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-1}
       GRPC_HOST: "0.0.0.0"
       GRPC_PORT: "50051"
       MINIO_ENDPOINT: minio:9000
@@ -58,22 +60,65 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-password}
       MINIO_USE_SSL: "false"
       MINIO_DEFAULT_BUCKET: voice-input
-      VAD_ENABLED: "true"
+      VAD_ENABLED: "false"
       VAD_THRESHOLD: "0.5"
+      HF_HUB_DISABLE_XET: "1"
+      HF_HOME: /home/stt/.cache/huggingface
+      TORCH_HOME: /home/stt/.cache/torch
       LOG_LEVEL: info
+      PYTHONUNBUFFERED: "1"
     depends_on:
       - minio
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
-      start_period: 90s
+      start_period: 5m
       retries: 3
     volumes:
       - stt_tmp:/tmp/noona_stt
+      - stt_hf_cache:/home/stt/.cache/huggingface
+      - stt_torch_cache:/home/stt/.cache/torch
+
+  tts-service:
+    build:
+      context: ./ai-service/tts
+      dockerfile: Dockerfile
+    container_name: noona-tts
+    restart: always
+    ports:
+      - "8002:8002"   # HTTP (health)
+      - "50052:50052" # gRPC (streaming TTS)
+    environment:
+      PIPER_MODEL: ${PIPER_MODEL:-en_US-lessac-medium.onnx}
+      MODELS_DIR: models
+      USE_CUDA: "false"
+      GRPC_HOST: "0.0.0.0"
+      GRPC_PORT: "50052"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-password}
+      MINIO_BUCKET: voice-output
+      LOG_LEVEL: info
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      - minio
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    volumes:
+      - tts_tmp:/tmp/noona_tts
+      - ./ai-service/tts/models:/app/models
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
   stt_tmp:
+  stt_hf_cache:
+  stt_torch_cache:
+  tts_tmp:
+  tts_models:

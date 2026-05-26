@@ -34,18 +34,18 @@ func (r *StorageRepo) UploadFile(ctx context.Context, file io.Reader, fileSize i
 		}
 	}
 
-	fileName := fmt.Sprintf("voice-input/%s%s", uuid.New().String(), ext)
+	objectKey := fmt.Sprintf("voice-input/%s%s", uuid.New().String(), ext)
 
 	opts := minio.PutObjectOptions{
 		ContentType: contentType,
 	}
 
-	_, err = r.client.PutObject(ctx, r.bucketName, fileName, file, fileSize, opts)
+	_, err = r.client.PutObject(ctx, r.bucketName, objectKey, file, fileSize, opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload file to minio: %w", err)
 	}
 
-	return fmt.Sprintf("%s/%s", r.bucketName, fileName), nil
+	return objectKey, nil
 }
 
 func (r *StorageRepo) DeleteFile(ctx context.Context, filePath string) error {

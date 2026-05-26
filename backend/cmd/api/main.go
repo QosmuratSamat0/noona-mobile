@@ -42,7 +42,7 @@ func main() {
 
 	app, err := app.NewApp(cfg, log)
 	if err != nil {
-		log.Error("failed to initialize app", "error", err)
+		log.Error("failed to initialize app", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 

@@ -75,9 +75,9 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 			// We continue to save the transcript at least
 		}
 
-		// Save results to database (using job.JobID as a session reference for now)
+		// Audio uploads are not tied to a chat message, so message_id stays NULL.
 		// 1. Save transcript
-		t, err := p.linguistic.SaveTranscript(gCtx, job.JobID, transcript)
+		t, err := p.linguistic.SaveTranscript(gCtx, "", transcript)
 		if err != nil {
 			slog.Warn("failed to save transcript", "error", err)
 			return nil // non-critical

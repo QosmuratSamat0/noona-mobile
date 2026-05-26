@@ -20,6 +20,7 @@ import (
 
 	gemini "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/llm/gemini"
 	sttClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/stt"
+	ttsClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/tts"
 
 	activityRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/activity/postgres"
 	audioMinioRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/audio/minio"
@@ -65,7 +66,7 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	activityRepo := activityRepo.New(db)
 
 	audioStorage := audioMinioRepo.NewStorageRepo(minioClient, "voice-input")
-	audioJob := audioRedisRepo.NewJobRepo(redisClient)
+	audioJob := audioRedisRepo.NewJobRepo(redisClient, cfg.AudioWorkerQueue)
 
 	// UseCases
 	userUC := userUseCase.NewUseCase(userRepo)
@@ -80,19 +81,26 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		cfg.STTGRPCAddr,
 		minioClient,
 		"voice-input",
+		cfg.STTRequestTimeout,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize stt grpc client: %w", err)
 	}
 
+	// TTS infrastructure — gRPC client calls Python Piper service
+	tts, err := ttsClient.NewGRPCClient(cfg.TTSGRPCAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize tts grpc client: %w", err)
+	}
+
 	// Gemini LLM provider — calls Google Gemini API for deep analysis
-	geminiProvider, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, "gemini-1.5-flash")
+	geminiProvider, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, cfg.GeminiModel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize gemini provider: %w", err)
 	}
 
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
-	processor := audioUseCase.NewAudioProcessor(stt, geminiProvider, nil, hub, linguisticUC)
+	processor := audioUseCase.NewAudioProcessor(stt, geminiProvider, tts, hub, linguisticUC)
 
 	// Worker pool — picks jobs from Redis queue and runs processor.
 	audioWorker := worker.NewAudioWorker(

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAudioStore, type CorrectionBlock } from '../store/audioStore';
+import { useAudioStore } from '../store/audioStore';
 import './CorrectionBlock.css';
 
 const TokenDiff = ({ original, corrected }: { original: string; corrected: string }) => (

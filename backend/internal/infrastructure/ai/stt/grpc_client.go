@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,7 +24,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 
 	pb "github.com/QosmuratSamat0/Noona-AI/backend/pkg/pb/stt"
 )
@@ -29,9 +31,8 @@ import (
 const (
 	// chunkSize is the gRPC message size for streaming audio bytes.
 	// 32 KB balances throughput vs. memory per concurrent stream.
-	chunkSize = 32 * 1024
-	// transcribeTimeout bounds STT calls so worker jobs cannot hang forever.
-	transcribeTimeout = 2 * time.Minute
+	chunkSize          = 32 * 1024
+	healthCheckTimeout = 5 * time.Second
 )
 
 // GRPCClient implements audio.STTService via the Python gRPC microservice.
@@ -40,6 +41,7 @@ type GRPCClient struct {
 	conn       *grpc.ClientConn
 	minio      *minio.Client
 	bucketName string
+	timeout    time.Duration
 }
 
 // NewGRPCClient dials the Python gRPC server and returns a ready-to-use client.
@@ -47,15 +49,18 @@ type GRPCClient struct {
 //	addr       – host:port of the Python STT service (e.g. "localhost:50051")
 //	minioClient – raw minio.Client for streaming the audio object
 //	bucketName – MinIO bucket containing audio files (e.g. "voice-input")
-func NewGRPCClient(addr string, minioClient *minio.Client, bucketName string) (*GRPCClient, error) {
+func NewGRPCClient(addr string, minioClient *minio.Client, bucketName string, timeout time.Duration) (*GRPCClient, error) {
+	normalizedAddr, err := normalizeGRPCAddr(addr)
+	if err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+
 	conn, err := grpc.NewClient(
-		addr,
+		normalizedAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                30 * time.Second,
-			Timeout:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
 		grpc.WithDefaultCallOptions(
 			// Allow receiving large transcripts
 			grpc.MaxCallRecvMsgSize(10*1024*1024),
@@ -64,15 +69,63 @@ func NewGRPCClient(addr string, minioClient *minio.Client, bucketName string) (*
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("stt grpc: dial %s: %w", addr, err)
+		return nil, fmt.Errorf("stt grpc: dial %s: %w", normalizedAddr, err)
+	}
+
+	client := pb.NewSTTServiceClient(conn)
+
+	// Non-blocking health check: log a warning if STT service is unreachable at
+	// startup, but do NOT fail — the worker will surface errors per-job when the
+	// service is actually needed.
+	healthCtx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
+	if _, err := client.Health(healthCtx, &pb.HealthRequest{}); err != nil {
+		slog.Warn("stt grpc: service not reachable at startup (will retry per-job)",
+			"addr", normalizedAddr, "error", err)
 	}
 
 	return &GRPCClient{
-		client:     pb.NewSTTServiceClient(conn),
+		client:     client,
 		conn:       conn,
 		minio:      minioClient,
 		bucketName: bucketName,
+		timeout:    timeout,
 	}, nil
+}
+
+func normalizeGRPCAddr(addr string) (string, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "", fmt.Errorf("stt grpc: empty address")
+	}
+
+	if i := strings.Index(addr, "#"); i >= 0 {
+		addr = strings.TrimSpace(addr[:i])
+	}
+
+	if strings.Contains(addr, "://") {
+		parsed, err := url.Parse(addr)
+		if err != nil {
+			return "", fmt.Errorf("stt grpc: invalid address %q: %w", addr, err)
+		}
+		host := parsed.Host
+		if host == "" {
+			return "", fmt.Errorf("stt grpc: invalid address %q", addr)
+		}
+		if parsed.Port() == "8001" {
+			host = net.JoinHostPort(parsed.Hostname(), "50051")
+		}
+		addr = host
+	}
+
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		if strings.Contains(err.Error(), "missing port in address") {
+			return net.JoinHostPort(addr, "50051"), nil
+		}
+		return "", fmt.Errorf("stt grpc: invalid address %q: %w", addr, err)
+	}
+
+	return addr, nil
 }
 
 // Close releases the underlying gRPC connection.
@@ -89,7 +142,7 @@ func (c *GRPCClient) Close() error {
 //  3. Send end_of_stream sentinel
 //  4. Collect TranscriptResult messages; return final text
 func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, transcribeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	// 1. Open gRPC stream
@@ -149,6 +202,12 @@ func (c *GRPCClient) streamMinioObject(
 	stream pb.STTService_TranscribeStreamClient,
 	objectKey string,
 ) error {
+	objectKey = normalizeObjectKey(c.bucketName, objectKey)
+
+	if _, err := c.minio.StatObject(ctx, c.bucketName, objectKey, minio.StatObjectOptions{}); err != nil {
+		return fmt.Errorf("stt grpc: minio object %q not found in bucket %q: %w", objectKey, c.bucketName, err)
+	}
+
 	obj, err := c.minio.GetObject(ctx, c.bucketName, objectKey, minio.GetObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("stt grpc: get minio object %q: %w", objectKey, err)
@@ -188,4 +247,13 @@ func (c *GRPCClient) streamMinioObject(
 	}
 	// Tell gRPC we're done sending; server will still stream results back
 	return stream.CloseSend()
+}
+
+func normalizeObjectKey(bucketName, objectKey string) string {
+	objectKey = strings.TrimSpace(objectKey)
+	legacyDoublePrefix := bucketName + "/" + bucketName + "/"
+	if strings.HasPrefix(objectKey, legacyDoublePrefix) {
+		return strings.TrimPrefix(objectKey, bucketName+"/")
+	}
+	return objectKey
 }

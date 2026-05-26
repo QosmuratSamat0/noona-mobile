@@ -7,20 +7,24 @@ import (
 )
 
 type Config struct {
-	Env                  string `env:"ENV" envDefault:"local"`
-	DatabaseURL          string `env:"DATABASE_URL"`
-	JWTSecret            string `env:"JWT_SECRET"`
-	RedisURL             string `env:"REDIS_URL" envDefault:"localhost:6379"`
-	MinioEndpoint        string `env:"MINIO_ENDPOINT" envDefault:"localhost:9000"`
-	MinioAccessKeyID     string `env:"MINIO_ACCESS_KEY_ID" envDefault:"minioadmin"`
-	MinioSecretAccessKey string `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
-	MinioUseSSL          bool   `env:"MINIO_USE_SSL" envDefault:"false"`
-	STTServiceURL     string        `env:"STT_SERVICE_URL" envDefault:"http://localhost:8001"`
-	STTGRPCAddr       string        `env:"STT_GRPC_ADDR" envDefault:"localhost:50051"`
-	STTRequestTimeout time.Duration `env:"STT_REQUEST_TIMEOUT" envDefault:"120s"`
-	GeminiAPIKey      string        `env:"GEMINI_API_KEY"`
-	AudioWorkerQueue  string        `env:"AUDIO_WORKER_QUEUE" envDefault:"audio:jobs"`
-	AudioWorkerCount     int    `env:"AUDIO_WORKER_COUNT" envDefault:"2"`
+	Env                  string        `env:"ENV" envDefault:"local"`
+	DatabaseURL          string        `env:"DATABASE_URL"`
+	JWTSecret            string        `env:"JWT_SECRET"`
+	RedisURL             string        `env:"REDIS_URL" envDefault:"localhost:6379"`
+	MinioEndpoint        string        `env:"MINIO_ENDPOINT" envDefault:"localhost:9000"`
+	MinioAccessKeyID     string        `env:"MINIO_ACCESS_KEY_ID" envDefault:"minioadmin"`
+	MinioSecretAccessKey string        `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
+	MinioUseSSL          bool          `env:"MINIO_USE_SSL" envDefault:"false"`
+	STTServiceURL        string        `env:"STT_SERVICE_URL" envDefault:"http://localhost:8001"`
+	STTGRPCAddr          string        `env:"STT_GRPC_ADDR" envDefault:"localhost:50051"`
+	STTRequestTimeout    time.Duration `env:"STT_REQUEST_TIMEOUT" envDefault:"10m"`
+	TTSServiceURL        string        `env:"TTS_SERVICE_URL" envDefault:"http://localhost:8002"`
+	TTSGRPCAddr          string        `env:"TTS_GRPC_ADDR" envDefault:"localhost:50052"`
+	TTSRequestTimeout    time.Duration `env:"TTS_REQUEST_TIMEOUT" envDefault:"120s"`
+	GeminiAPIKey         string        `env:"GEMINI_API_KEY"`
+	GeminiModel          string        `env:"GEMINI_MODEL" envDefault:"gemini-2.5-flash"`
+	AudioWorkerQueue     string        `env:"AUDIO_WORKER_QUEUE" envDefault:"audio:jobs"`
+	AudioWorkerCount     int           `env:"AUDIO_WORKER_COUNT" envDefault:"2"`
 	HTTPServer           HTTPServer
 }
 
