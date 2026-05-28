@@ -47,7 +47,7 @@ services:
       - "8001:8001"   # HTTP (health + docs)
       - "50051:50051" # gRPC (streaming STT)
     environment:
-      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-small}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-auto}
       WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-4}

@@ -20,6 +20,7 @@ type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*domain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error)
 	SaveMessage(ctx context.Context, userID string, sessionID string, role domain.Role, content string) (*domain.Message, error)
+	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*domain.Message, error)
 	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*domain.Message, error)
 }
 
@@ -44,6 +45,7 @@ type MessageResponse struct {
 	SessionID string    `json:"session_id"`
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
+	AudioURL  string    `json:"audio_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -173,6 +175,7 @@ func (h *ChatHandler) GetSessionMessages(w http.ResponseWriter, r *http.Request)
 			SessionID: m.SessionID,
 			Role:      string(m.Role),
 			Content:   m.Content,
+			AudioURL:  m.AudioURL,
 			CreatedAt: m.CreatedAt,
 		})
 	}
@@ -219,8 +222,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save user message
-	msg, err := h.chatUC.SaveMessage(r.Context(), user.ID, sessionID, domain.RoleUser, req.Content)
+	msg, err := h.chatUC.SendMessageWithReply(r.Context(), user.ID, sessionID, req.Content)
 	if err != nil {
 		if errors.Is(err, errs.ErrSessionAccessDenied) {
 			render.Status(r, http.StatusForbidden)
@@ -244,6 +246,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		SessionID: msg.SessionID,
 		Role:      string(msg.Role),
 		Content:   msg.Content,
+		AudioURL:  msg.AudioURL,
 		CreatedAt: msg.CreatedAt,
 	})
 }

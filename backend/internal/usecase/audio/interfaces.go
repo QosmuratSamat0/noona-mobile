@@ -33,10 +33,12 @@ type LinguisticUseCase interface {
 
 type STTService interface {
 	Transcribe(ctx context.Context, audioPath string) (string, error)
+	TranscribeReader(ctx context.Context, audio io.Reader, language string) (string, error)
 }
 
 type LLMProvider interface {
 	StreamReply(ctx context.Context, transcript string) (<-chan string, error)
+	QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error)
 	Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error)
 }
 

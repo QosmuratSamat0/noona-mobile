@@ -86,7 +86,7 @@ class _AppRootState extends State<AppRoot> {
       tokens = null;
       user = null;
     });
-    if (old != null) unawaited(widget.repository.logout(old!));
+    if (old != null) unawaited(widget.repository.logout(old));
     await widget.sessionStore.clear();
   }
 

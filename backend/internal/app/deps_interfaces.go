@@ -31,6 +31,7 @@ type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*chatDomain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*chatDomain.Session, error)
 	SaveMessage(ctx context.Context, userID string, sessionID string, role chatDomain.Role, content string) (*chatDomain.Message, error)
+	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*chatDomain.Message, error)
 	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*chatDomain.Message, error)
 }
 

@@ -16,8 +16,20 @@ type Config struct {
 	MinioSecretAccessKey string        `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
 	MinioUseSSL          bool          `env:"MINIO_USE_SSL" envDefault:"false"`
 	STTServiceURL        string        `env:"STT_SERVICE_URL" envDefault:"http://localhost:8001"`
+	STTProvider          string        `env:"STT_PROVIDER" envDefault:"grpc"`
 	STTGRPCAddr          string        `env:"STT_GRPC_ADDR" envDefault:"localhost:50051"`
 	STTRequestTimeout    time.Duration `env:"STT_REQUEST_TIMEOUT" envDefault:"10m"`
+	GroqAPIKey           string        `env:"GROQ_API_KEY"`
+	GroqSTTURL           string        `env:"GROQ_STT_URL" envDefault:"https://api.groq.com/openai/v1/audio/transcriptions"`
+	GroqSTTModel         string        `env:"GROQ_STT_MODEL" envDefault:"whisper-large-v3-turbo"`
+	LLMProvider          string        `env:"LLM_PROVIDER" envDefault:"gemini"`
+	GroqLLMURL           string        `env:"GROQ_LLM_URL" envDefault:"https://api.groq.com/openai/v1/chat/completions"`
+	GroqLLMModel         string        `env:"GROQ_LLM_MODEL" envDefault:"llama-3.3-70b-versatile"`
+	OpenRouterAPIKey     string        `env:"OPENROUTER_API_KEY"`
+	OpenRouterLLMURL     string        `env:"OPENROUTER_LLM_URL" envDefault:"https://openrouter.ai/api/v1/chat/completions"`
+	OpenRouterLLMModel   string        `env:"OPENROUTER_LLM_MODEL" envDefault:"openai/gpt-4o-mini"`
+	OpenRouterReferer    string        `env:"OPENROUTER_HTTP_REFERER"`
+	OpenRouterAppTitle   string        `env:"OPENROUTER_APP_TITLE" envDefault:"Noona AI"`
 	TTSServiceURL        string        `env:"TTS_SERVICE_URL" envDefault:"http://localhost:8002"`
 	TTSGRPCAddr          string        `env:"TTS_GRPC_ADDR" envDefault:"localhost:50052"`
 	TTSRequestTimeout    time.Duration `env:"TTS_REQUEST_TIMEOUT" envDefault:"120s"`

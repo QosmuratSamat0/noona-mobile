@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	_ "github.com/QosmuratSamat0/Noona-AI/backend/docs"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/config"
@@ -19,6 +20,8 @@ import (
 	userModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/user"
 
 	gemini "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/llm/gemini"
+	groqLLM "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/llm/groq"
+	openrouterLLM "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/llm/openrouter"
 	sttClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/stt"
 	ttsClient "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/ai/tts"
 
@@ -74,17 +77,36 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	activityUC := activityUseCase.NewUseCase(activityRepo)
 	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC)
 	linguisticUC := linguisticUseCase.NewUseCase(linguisticRepo)
-	audioUC := audioUseCase.NewUseCase(audioStorage, audioJob, activityUC)
 
 	// AI infrastructure — gRPC client calls Python faster-whisper service
-	stt, err := sttClient.NewGRPCClient(
-		cfg.STTGRPCAddr,
-		minioClient,
-		"voice-input",
-		cfg.STTRequestTimeout,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize stt grpc client: %w", err)
+	var stt audioUseCase.STTService
+	switch strings.ToLower(strings.TrimSpace(cfg.STTProvider)) {
+	case "", "grpc", "local", "faster-whisper":
+		localSTT, err := sttClient.NewGRPCClient(
+			cfg.STTGRPCAddr,
+			minioClient,
+			"voice-input",
+			cfg.STTRequestTimeout,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize stt grpc client: %w", err)
+		}
+		stt = localSTT
+	case "groq":
+		groqSTT, err := sttClient.NewGroqClient(
+			cfg.GroqAPIKey,
+			cfg.GroqSTTURL,
+			cfg.GroqSTTModel,
+			minioClient,
+			"voice-input",
+			cfg.STTRequestTimeout,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize groq stt client: %w", err)
+		}
+		stt = groqSTT
+	default:
+		return nil, fmt.Errorf("unknown STT_PROVIDER %q; use grpc or groq", cfg.STTProvider)
 	}
 
 	// TTS infrastructure — gRPC client calls Python Piper service
@@ -93,14 +115,53 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		return nil, fmt.Errorf("failed to initialize tts grpc client: %w", err)
 	}
 
-	// Gemini LLM provider — calls Google Gemini API for deep analysis
-	geminiProvider, err := gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, cfg.GeminiModel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gemini provider: %w", err)
+	// LLM provider for chat replies and linguistic feedback.
+	var llm audioUseCase.LLMProvider
+	var geminiProvider *gemini.GeminiProvider
+	switch strings.ToLower(strings.TrimSpace(cfg.LLMProvider)) {
+	case "", "gemini":
+		var err error
+		geminiProvider, err = gemini.NewGeminiProvider(context.Background(), cfg.GeminiAPIKey, cfg.GeminiModel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize gemini provider: %w", err)
+		}
+		llm = geminiProvider
+	case "groq":
+		groqProvider, err := groqLLM.NewProvider(cfg.GroqAPIKey, cfg.GroqLLMURL, cfg.GroqLLMModel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize groq llm provider: %w", err)
+		}
+		llm = groqProvider
+	case "openrouter":
+		openrouterProvider, err := openrouterLLM.NewProvider(
+			cfg.OpenRouterAPIKey,
+			cfg.OpenRouterLLMURL,
+			cfg.OpenRouterLLMModel,
+			cfg.OpenRouterReferer,
+			cfg.OpenRouterAppTitle,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize openrouter llm provider: %w", err)
+		}
+		llm = openrouterProvider
+	default:
+		return nil, fmt.Errorf("unknown LLM_PROVIDER %q; use gemini, groq, or openrouter", cfg.LLMProvider)
 	}
+	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm).WithTTS(tts)
+
+	audioUC := audioUseCase.NewLowLatencyUseCase(
+		audioStorage,
+		audioJob,
+		activityUC,
+		stt,
+		llm,
+		tts,
+		hub,
+		linguisticUC,
+	)
 
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
-	processor := audioUseCase.NewAudioProcessor(stt, geminiProvider, tts, hub, linguisticUC)
+	processor := audioUseCase.NewAudioProcessor(stt, llm, tts, hub, linguisticUC)
 
 	// Worker pool — picks jobs from Redis queue and runs processor.
 	audioWorker := worker.NewAudioWorker(

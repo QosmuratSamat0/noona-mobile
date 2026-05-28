@@ -196,6 +196,84 @@ func (c *GRPCClient) Transcribe(ctx context.Context, filePath string) (string, e
 	return finalResult, nil
 }
 
+func (c *GRPCClient) TranscribeReader(ctx context.Context, audio io.Reader, language string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	stream, err := c.client.TranscribeStream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("stt grpc: open stream: %w", err)
+	}
+
+	var (
+		finalText   string
+		finalTextMu sync.Mutex
+	)
+	group, groupCtx := errgroup.WithContext(ctx)
+
+	group.Go(func() error {
+		buf := make([]byte, chunkSize)
+		first := true
+		for {
+			n, readErr := audio.Read(buf)
+			if n > 0 {
+				chunk := &pb.AudioChunk{
+					Data:   buf[:n],
+					Format: pb.AudioFormat_ENCODED,
+				}
+				if first {
+					first = false
+					chunk.Language = language
+				}
+				if err := stream.Send(chunk); err != nil {
+					return fmt.Errorf("stt grpc: send chunk: %w", err)
+				}
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				return fmt.Errorf("stt grpc: read audio: %w", readErr)
+			}
+			select {
+			case <-groupCtx.Done():
+				return groupCtx.Err()
+			default:
+			}
+		}
+		if err := stream.Send(&pb.AudioChunk{EndOfStream: true}); err != nil {
+			return fmt.Errorf("stt grpc: send EOS: %w", err)
+		}
+		return stream.CloseSend()
+	})
+
+	group.Go(func() error {
+		for {
+			result, recvErr := stream.Recv()
+			if recvErr == io.EOF {
+				return nil
+			}
+			if recvErr != nil {
+				return fmt.Errorf("stt grpc: recv: %w", recvErr)
+			}
+			if result.IsFinal {
+				finalTextMu.Lock()
+				finalText = result.Text
+				finalTextMu.Unlock()
+			}
+		}
+	})
+
+	if err := group.Wait(); err != nil {
+		return "", err
+	}
+
+	finalTextMu.Lock()
+	defer finalTextMu.Unlock()
+	slog.Info("stt grpc: direct transcription complete", "text_len", len(finalText))
+	return finalText, nil
+}
+
 // streamMinioObject reads the audio file from MinIO and sends it as gRPC chunks.
 func (c *GRPCClient) streamMinioObject(
 	ctx context.Context,

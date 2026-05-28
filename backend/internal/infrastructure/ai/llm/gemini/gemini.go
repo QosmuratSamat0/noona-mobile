@@ -50,7 +50,11 @@ func (p *GeminiProvider) StreamReply(ctx context.Context, transcript string) (<-
 
 	model := p.getModel()
 	model.SystemInstruction = &genai.Content{
-		Parts: []genai.Part{genai.Text("You are Noona, an expert English language tutor. Be encouraging, concise, and helpful.")},
+		Parts: []genai.Part{genai.Text(`You are Noona, an English speaking coach inside a chat app.
+Reply in plain text only: no Markdown, no asterisks, no bullet symbols, no emojis.
+If the user says hello/hey/hi, greet them briefly and ask one simple speaking question.
+If the user writes an English sentence, correct the most important issue and ask one short follow-up question.
+Keep replies under 45 words.`)},
 	}
 
 	iter := model.GenerateContentStream(ctx, genai.Text(transcript))
@@ -67,7 +71,7 @@ func (p *GeminiProvider) StreamReply(ctx context.Context, transcript string) (<-
 				return
 			}
 
-			if len(resp.Candidates) > 0 {
+			if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
 				for _, part := range resp.Candidates[0].Content.Parts {
 					if text, ok := part.(genai.Text); ok {
 						out <- string(text)
@@ -78,6 +82,52 @@ func (p *GeminiProvider) StreamReply(ctx context.Context, transcript string) (<-
 	}()
 
 	return out, nil
+}
+
+func (p *GeminiProvider) QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error) {
+	model := p.getModel()
+	model.ResponseMIMEType = "application/json"
+	model.SystemInstruction = &genai.Content{
+		Parts: []genai.Part{genai.Text(`You are Noona, a fast English speaking coach.
+Correct the learner's sentence with minimal latency.
+Return only valid JSON:
+{
+  "corrected_text": "string",
+  "reason": "one short reason, max 16 words",
+  "original": "string"
+}
+Focus on the single most important mistake. Keep it short.`)},
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	resp, err := model.GenerateContent(ctx, genai.Text(transcript))
+	if err != nil {
+		return nil, p.mapError(err)
+	}
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("gemini quick feedback returned empty response")
+	}
+	textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
+	if !ok {
+		return nil, fmt.Errorf("gemini quick feedback returned non-text part")
+	}
+
+	var feedback linguistic.QuickFeedback
+	if err := json.Unmarshal([]byte(p.sanitizeJSON(string(textPart))), &feedback); err != nil {
+		return nil, fmt.Errorf("malformed quick feedback json: %w", err)
+	}
+	if strings.TrimSpace(feedback.CorrectedText) == "" {
+		feedback.CorrectedText = transcript
+	}
+	if strings.TrimSpace(feedback.Reason) == "" {
+		feedback.Reason = "A clearer corrected version is shown above."
+	}
+	if strings.TrimSpace(feedback.Original) == "" {
+		feedback.Original = transcript
+	}
+	return &feedback, nil
 }
 
 func (p *GeminiProvider) Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error) {
@@ -169,7 +219,7 @@ Only output valid JSON.`)},
 		return nil, fmt.Errorf("gemini stopped unexpectedly: reason=%v, safety=%v", candidate.FinishReason, candidate.SafetyRatings)
 	}
 
-	if len(candidate.Content.Parts) == 0 {
+	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
 		return nil, fmt.Errorf("gemini returned empty response")
 	}
 

@@ -17,3 +17,11 @@ type ChatRepo interface {
 type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
 }
+
+type LLMProvider interface {
+	StreamReply(ctx context.Context, transcript string) (<-chan string, error)
+}
+
+type TTSService interface {
+	GenerateAudio(ctx context.Context, text string) (string, error)
+}

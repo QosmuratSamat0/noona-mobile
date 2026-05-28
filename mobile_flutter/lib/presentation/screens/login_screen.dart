@@ -21,8 +21,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final email = TextEditingController(text: 'alikhan@gmail.com');
-  final password = TextEditingController(text: 'password123');
+  final email = TextEditingController(text: '');
+  final password = TextEditingController(text: '');
   bool loading = false;
 
   @override
@@ -81,16 +81,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 height: 54,
                 child: FilledButton(
                   onPressed: loading ? null : _submit,
-                  child: loading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Sign in'),
+                  child: loading ? const CircularProgressIndicator(color: Colors.white) : const Text('Sign in'),
                 ),
               ),
               const SizedBox(height: 20),
-              Text(
+              const Text(
                 AppConfig.apiUrl,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                style: TextStyle(color: AppColors.muted, fontSize: 11),
               ),
             ],
           ),
