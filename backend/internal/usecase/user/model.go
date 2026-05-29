@@ -12,10 +12,11 @@ type CreateUserInput struct {
 }
 
 type UpdateUserInput struct {
-	ID    string
-	Name  string
-	Email string
-	Role  model.Role
+	ID        string
+	Name      string
+	Email     string
+	Role      model.Role
+	CEFRLevel string
 }
 
 type ChangeRoleInput struct {

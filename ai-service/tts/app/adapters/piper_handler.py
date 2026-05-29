@@ -37,7 +37,6 @@ def load_model(settings: Settings) -> ModelHandle:
 
     if not os.path.exists(model_path):
         logger.error(f"Piper model file not found at {model_path}")
-        # We raise here to stop the service if the core model is missing
         raise FileNotFoundError(f"Piper model not found: {model_path}")
 
     logger.info(

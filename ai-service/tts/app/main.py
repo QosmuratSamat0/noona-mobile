@@ -33,16 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     logger.info("TTS service starting up…")
 
-    # 1. Load Piper model (Singleton)
-    try:
-        model_handle = load_model(settings)
-    except Exception as e:
-        logger.error(f"Failed to load Piper model: {e}")
-        # We allow startup even if model fails, but RPCs will fail.
-        # In production, you might want to exit(1) here.
-        model_handle = None
+    model_handle = load_model(settings)
 
-    # 2. Build MinIO adapter
     minio = MinioAdapter(
         endpoint=settings.minio_endpoint,
         access_key=settings.minio_access_key,
@@ -50,7 +42,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         use_ssl=settings.minio_use_ssl,
     )
 
-    # 3. Start gRPC server as a background asyncio task
     grpc_stop = asyncio.Event()
     grpc_task = asyncio.create_task(
         run_grpc_server(model_handle, minio, settings, grpc_stop)
@@ -65,7 +56,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown
     logger.info("TTS service shutting down…")
     grpc_stop.set()
     await asyncio.wait_for(grpc_task, timeout=10)

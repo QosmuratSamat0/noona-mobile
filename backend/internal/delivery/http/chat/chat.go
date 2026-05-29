@@ -10,8 +10,10 @@ import (
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/middleware"
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	resp "github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/api/response"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
+	chatUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/chat"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 )
@@ -20,7 +22,7 @@ type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*domain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error)
 	SaveMessage(ctx context.Context, userID string, sessionID string, role domain.Role, content string) (*domain.Message, error)
-	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*domain.Message, error)
+	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*chatUseCase.SendMessageResult, error)
 	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*domain.Message, error)
 }
 
@@ -41,12 +43,13 @@ type SessionResponse struct {
 }
 
 type MessageResponse struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	AudioURL  string    `json:"audio_url,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string                    `json:"id"`
+	SessionID string                    `json:"session_id"`
+	Role      string                    `json:"role"`
+	Content   string                    `json:"content"`
+	AudioURL  string                    `json:"audio_url,omitempty"`
+	Feedback  *linguistic.QuickFeedback `json:"feedback,omitempty"`
+	CreatedAt time.Time                 `json:"created_at"`
 }
 
 // CreateSession godoc
@@ -176,6 +179,7 @@ func (h *ChatHandler) GetSessionMessages(w http.ResponseWriter, r *http.Request)
 			Role:      string(m.Role),
 			Content:   m.Content,
 			AudioURL:  m.AudioURL,
+			Feedback:  m.Feedback,
 			CreatedAt: m.CreatedAt,
 		})
 	}
@@ -222,7 +226,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := h.chatUC.SendMessageWithReply(r.Context(), user.ID, sessionID, req.Content)
+	result, err := h.chatUC.SendMessageWithReply(r.Context(), user.ID, sessionID, req.Content)
 	if err != nil {
 		if errors.Is(err, errs.ErrSessionAccessDenied) {
 			render.Status(r, http.StatusForbidden)
@@ -239,6 +243,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		render.JSON(w, r, resp.Error("internal error"))
 		return
 	}
+	msg := result.Reply
 
 	render.Status(r, http.StatusCreated)
 	render.JSON(w, r, MessageResponse{
@@ -247,6 +252,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		Role:      string(msg.Role),
 		Content:   msg.Content,
 		AudioURL:  msg.AudioURL,
+		Feedback:  result.Feedback,
 		CreatedAt: msg.CreatedAt,
 	})
 }

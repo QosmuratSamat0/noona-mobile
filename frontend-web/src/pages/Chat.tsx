@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
-import { useAudioStore } from '../store/audioStore';
 import { HoldToSpeak } from '../components/HoldToSpeak';
 import { CorrectionBlockComponent } from '../components/CorrectionBlock';
 import api from '../lib/axios';
@@ -16,7 +15,6 @@ interface Message {
 
 export const Chat = () => {
   const { refreshToken, logout: clearStore, user } = useAuthStore();
-  const correction = useAudioStore((s) => s.correction);
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -34,27 +32,6 @@ export const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Auto-add correction as an assistant message
-  useEffect(() => {
-    if (correction?.transcript) {
-      const parts: string[] = [];
-      if (correction.grammar) {
-        parts.push(`📝 **Grammar:** "${correction.grammar.original}" → "${correction.grammar.corrected}"`);
-      }
-      if (correction.pronunciation) {
-        parts.push(`🔊 **Pronunciation:** "${correction.pronunciation.original}" → /${correction.pronunciation.phonetic}/`);
-      }
-      if (parts.length > 0) {
-        const msg: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: parts.join('\n'),
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, msg]);
-      }
-    }
-  }, [correction]);
 
   const handleLogout = async () => {
     try {

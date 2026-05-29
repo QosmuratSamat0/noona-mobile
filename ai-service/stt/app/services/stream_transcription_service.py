@@ -34,7 +34,7 @@ from app.proto import stt_pb2, stt_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
-_SAMPLE_RATE = 16_000  # Whisper / Silero requirement
+_SAMPLE_RATE = 16_000 
 
 
 class STTServicer(stt_pb2_grpc.STTServiceServicer):
@@ -48,9 +48,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
         self._settings = settings
         self._executor = ThreadPoolExecutor(max_workers=settings.whisper_num_workers)
 
-        # Load Silero VAD once (shared, stateless model weights).
-        # Falls back gracefully if torchaudio / silero-vad is unavailable —
-        # RAW_PCM streams will use Whisper's built-in VAD filter instead.
         self._vad_model = None
         try:
             self._vad_model, _ = load_silero_vad()
@@ -64,9 +61,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
 
         logger.info("STTServicer initialised (device=%s)", model_handle.device)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Health RPC
-    # ─────────────────────────────────────────────────────────────────────────
 
     async def Health(
         self,
@@ -80,9 +74,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
             compute_type=self._model.compute_type,
         )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # TranscribeStream RPC
-    # ─────────────────────────────────────────────────────────────────────────
 
     async def TranscribeStream(
         self,
@@ -93,7 +84,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
         Bidirectional streaming RPC.
         Dispatches to the correct handler based on the first chunk's format.
         """
-        # We need to peek at the first chunk to decide the format.
         first_chunk: stt_pb2.AudioChunk | None = None
         async for chunk in request_iterator:
             first_chunk = chunk
@@ -103,7 +93,7 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "empty stream")
             return
 
-        fmt = first_chunk.format  # stt_pb2.AudioFormat value (int)
+        fmt = first_chunk.format  
 
         if fmt == stt_pb2.AudioFormat.Value("RAW_PCM_S16LE"):
             async for result in self._handle_raw_pcm(
@@ -111,15 +101,11 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
             ):
                 yield result
         else:
-            # Default: ENCODED (WebM / OGG / MP3)
             async for result in self._handle_encoded(
                 first_chunk, request_iterator, context
             ):
                 yield result
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # ENCODED handler — accumulate → temp file → Whisper
-    # ─────────────────────────────────────────────────────────────────────────
 
     async def _handle_encoded(
         self,
@@ -138,7 +124,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
         language = first_chunk.language or (self._settings.whisper_language or None)
 
         try:
-            # ── Accumulate bytes ──────────────────────────────────────────────
             with open(tmp_path, "wb") as f:
                 if first_chunk.data:
                     f.write(first_chunk.data)
@@ -152,7 +137,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
                         if chunk.end_of_stream:
                             break
 
-            # ── Transcribe in thread pool (blocking) ──────────────────────────
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 self._executor,
@@ -231,9 +215,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
             logger.exception("Whisper transcription failed: %s", exc)
             return None
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # RAW_PCM_S16LE handler — VAD → Whisper (streaming, real-time)
-    # ─────────────────────────────────────────────────────────────────────────
 
     async def _handle_raw_pcm(
         self,
@@ -250,7 +231,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
         loop = asyncio.get_running_loop()
 
         if self._vad_model is not None:
-            # ── Path A: Silero VAD available ──────────────────────────────────
             vad = VADRingBuffer(
                 model=self._vad_model,
                 threshold=self._settings.vad_threshold,
@@ -287,7 +267,6 @@ class STTServicer(stt_pb2_grpc.STTServiceServicer):
                 logger.exception("Error in _handle_raw_pcm (VAD path)")
                 await context.abort(grpc.StatusCode.INTERNAL, str(exc))
         else:
-            # ── Path B: No Silero VAD — accumulate all PCM and run Whisper once
             pcm_chunks: list[bytes] = []
             if first_chunk.data:
                 pcm_chunks.append(first_chunk.data)

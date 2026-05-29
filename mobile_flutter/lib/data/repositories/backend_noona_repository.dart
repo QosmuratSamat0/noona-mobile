@@ -27,19 +27,29 @@ class BackendNoonaRepository implements NoonaRepository {
 
   @override
   Future<AuthTokens> login(String email, String password) async {
-    final json = await _api.post('/auth/login', {'email': email, 'password': password});
+    final json =
+        await _api.post('/auth/login', {'email': email, 'password': password});
     return AuthTokens.fromJson(json);
   }
 
   @override
   Future<AppUser> me(String token) async {
-    final json = await _authorizedGet('/users/me', token) as Map<String, dynamic>;
+    final json =
+        await _authorizedGet('/users/me', token) as Map<String, dynamic>;
     return AppUser.fromJson(json);
   }
 
   @override
+  Future<AppUser> updateCEFRLevel(
+      String userId, String level, String token) async {
+    await _authorizedPut('/users/$userId', {'cefr_level': level}, token);
+    return me(token);
+  }
+
+  @override
   Future<void> logout(AuthTokens tokens) {
-    return _api.post('/auth/logout', {'refresh_token': tokens.refreshToken}, tokens.accessToken);
+    return _api.post('/auth/logout', {'refresh_token': tokens.refreshToken},
+        tokens.accessToken);
   }
 
   @override
@@ -52,7 +62,9 @@ class BackendNoonaRepository implements NoonaRepository {
   Future<List<Mistake>> mistakes(String token) async {
     final json = await _authorizedGet('/linguistic/mistakes', token);
     final items = json is List ? json : const [];
-    return items.map((item) => Mistake.fromJson(item as Map<String, dynamic>)).toList();
+    return items
+        .map((item) => Mistake.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   @override
@@ -71,22 +83,33 @@ class BackendNoonaRepository implements NoonaRepository {
   Future<List<ChatMessage>> messages(String sessionId, String token) async {
     final json = await _authorizedGet('/sessions/$sessionId/messages', token);
     final items = json is List ? json : const [];
-    return items.map((item) => ChatMessage.fromJson(item as Map<String, dynamic>)).toList();
+    return items
+        .map((item) => ChatMessage.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   @override
-  Future<ChatMessage> sendMessage(String sessionId, String content, String token) async {
-    final json = await _authorizedPost('/sessions/$sessionId/messages', {'content': content}, token);
+  Future<ChatMessage> sendMessage(
+      String sessionId, String content, String token) async {
+    final json = await _authorizedPost(
+        '/sessions/$sessionId/messages', {'content': content}, token);
     return ChatMessage.fromJson(json);
   }
 
   @override
-  Future<void> uploadAudio(File file, String token) async {
-    var response = await _api.rawUpload('/audio/upload', file, token);
+  Future<void> uploadAudio(File file, String token, {String? sessionId}) async {
+    final fields = {
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'session_id': sessionId.trim(),
+    };
+    var response =
+        await _api.rawUpload('/audio/upload', file, token, fields: fields);
     if (response.statusCode == 401) {
       final refreshed = await _refreshOrExpire();
       if (refreshed == null) throw ApiException('Session expired');
-      response = await _api.rawUpload('/audio/upload', file, refreshed.accessToken);
+      response = await _api.rawUpload(
+          '/audio/upload', file, refreshed.accessToken,
+          fields: fields);
     }
     _decode(response, '/audio/upload');
   }
@@ -115,11 +138,26 @@ class BackendNoonaRepository implements NoonaRepository {
     return _decode(response, path) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> _authorizedPut(
+    String path,
+    Map<String, dynamic> body,
+    String token,
+  ) async {
+    var response = await _api.rawPut(path, body, token);
+    if (response.statusCode == 401) {
+      final refreshed = await _refreshOrExpire();
+      if (refreshed == null) throw ApiException('Session expired');
+      response = await _api.rawPut(path, body, refreshed.accessToken);
+    }
+    return _decode(response, path) as Map<String, dynamic>;
+  }
+
   Future<AuthTokens?> _refreshOrExpire() async {
     final current = await _sessionStore.load();
     if (current == null) return null;
     try {
-      final json = await _api.post('/auth/refresh', {'refresh_token': current.refreshToken});
+      final json = await _api
+          .post('/auth/refresh', {'refresh_token': current.refreshToken});
       final refreshed = AuthTokens.fromJson(json);
       await _sessionStore.save(refreshed);
       return refreshed;

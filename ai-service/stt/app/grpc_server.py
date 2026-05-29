@@ -35,10 +35,8 @@ async def run_grpc_server(
 
     server = aio.server(
         options=[
-            # Allow large audio files (up to 50 MB)
             ("grpc.max_receive_message_length", 50 * 1024 * 1024),
             ("grpc.max_send_message_length", 10 * 1024 * 1024),
-            # Keepalive — important for long-lived streaming connections
             ("grpc.keepalive_time_ms", 30_000),
             ("grpc.keepalive_timeout_ms", 10_000),
         ]
@@ -52,9 +50,8 @@ async def run_grpc_server(
     await server.start()
     logger.info("gRPC STT server listening on %s", addr)
 
-    # Wait until the stop signal arrives (from FastAPI lifespan shutdown)
     await stop_event.wait()
 
     logger.info("gRPC server shutting down…")
-    await server.stop(grace=5)  # 5-second grace period for in-flight streams
+    await server.stop(grace=5) 
     logger.info("gRPC server stopped.")

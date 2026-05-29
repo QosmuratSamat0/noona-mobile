@@ -28,7 +28,7 @@ class _ChatBubbleState extends State<ChatBubble> {
     final audioUrl = message.audioUrl?.trim();
     if (audioUrl == null || audioUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Аудио ответ еще не готов.')),
+        const SnackBar(content: Text('The audio reply is not ready yet.')),
       );
       return;
     }
@@ -42,7 +42,7 @@ class _ChatBubbleState extends State<ChatBubble> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Ошибка аудио: $error')));
+          .showSnackBar(SnackBar(content: Text('Audio error: $error')));
     } finally {
       if (mounted) setState(() => _isPlaying = false);
     }
@@ -92,7 +92,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                         ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withValues(alpha: 0.06),
                       blurRadius: 4,
                       offset: const Offset(0, 1),
                     ),
@@ -115,9 +115,9 @@ class _ChatBubbleState extends State<ChatBubble> {
                 child: Padding(
                   padding: const EdgeInsets.only(right: 4),
                   child: Text(
-                    'нажми для анализа',
+                    'tap for feedback',
                     style: TextStyle(
-                      color: Colors.black.withOpacity(0.35),
+                      color: Colors.black.withValues(alpha: 0.35),
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),
@@ -173,7 +173,7 @@ class _ChatBubbleState extends State<ChatBubble> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      barrierColor: Colors.black.withOpacity(0.42),
+      barrierColor: Colors.black.withValues(alpha: 0.42),
       backgroundColor: Colors.transparent,
       builder: (context) =>
           _FeedbackSheet(message: message, feedback: feedback),
@@ -241,12 +241,12 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
     final pronunciationMistakes = feedback.mistakes
         .where((m) => m.type.toLowerCase() == 'pronunciation')
         .toList();
-    final score = grammarTab
-        ? _grammarScore(grammarMistakes)
-        : _pronunciationScore(pronunciationMistakes);
     final sentence = feedback.original?.isNotEmpty == true
         ? feedback.original!
         : widget.message.text;
+    final score = grammarTab
+        ? _grammarScore(feedback, grammarMistakes, sentence)
+        : _pronunciationScore(pronunciationMistakes, sentence);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.56,
@@ -299,7 +299,7 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(
-                        score >= 90 ? 'Well done!' : 'неплохо!',
+                        score >= 90 ? 'Well done!' : 'Nice work!',
                         style: const TextStyle(
                             color: Color(0xFF2F9E44),
                             fontSize: 14,
@@ -329,14 +329,76 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
     );
   }
 
-  int _grammarScore(List<ChatMistake> mistakes) {
-    if (mistakes.isEmpty) return 93;
-    return (91 - mistakes.length * 10).clamp(58, 91);
+  int _grammarScore(
+    ChatFeedback feedback,
+    List<ChatMistake> mistakes,
+    String sentence,
+  ) {
+    final wordCount = _wordCount(sentence);
+    var issueCount = mistakes.length;
+
+    if (issueCount == 0 &&
+        _normalized(feedback.correctedText).isNotEmpty &&
+        _normalized(feedback.correctedText) != _normalized(sentence)) {
+      issueCount = _changedWordCount(sentence, feedback.correctedText);
+    }
+
+    if (issueCount == 0) return 100;
+    final penalty = (issueCount / wordCount.clamp(1, 40)) * 60;
+    return (100 - penalty).round().clamp(40, 99);
   }
 
-  int _pronunciationScore(List<ChatMistake> mistakes) {
-    if (mistakes.isEmpty) return 93;
-    return (96 - mistakes.length * 8).clamp(62, 96);
+  int _pronunciationScore(List<ChatMistake> mistakes, String sentence) {
+    if (mistakes.isEmpty) return 100;
+    final wordCount = _wordCount(sentence);
+    final penalty = (mistakes.length / wordCount.clamp(1, 40)) * 55;
+    return (100 - penalty).round().clamp(45, 99);
+  }
+
+  int _wordCount(String text) {
+    final words = RegExp(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+        .allMatches(text)
+        .map((match) => match.group(0))
+        .whereType<String>()
+        .toList();
+    return words.isEmpty ? 1 : words.length;
+  }
+
+  int _changedWordCount(String original, String corrected) {
+    final originalWords = _words(original);
+    final correctedWords = _words(corrected);
+    if (originalWords.isEmpty && correctedWords.isEmpty) return 0;
+    final common = _longestCommonSubsequenceLength(originalWords, correctedWords);
+    final changed = [originalWords.length, correctedWords.length]
+            .reduce((a, b) => a > b ? a : b) -
+        common;
+    return changed.clamp(1, _wordCount(original));
+  }
+
+  int _longestCommonSubsequenceLength(List<String> a, List<String> b) {
+    final dp = List.generate(a.length + 1, (_) => List<int>.filled(b.length + 1, 0));
+    for (var i = 1; i <= a.length; i++) {
+      for (var j = 1; j <= b.length; j++) {
+        if (a[i - 1] == b[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = dp[i - 1][j] > dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
+        }
+      }
+    }
+    return dp[a.length][b.length];
+  }
+
+  List<String> _words(String text) {
+    return RegExp(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+        .allMatches(text.toLowerCase())
+        .map((match) => match.group(0))
+        .whereType<String>()
+        .toList();
+  }
+
+  String _normalized(String text) {
+    return _words(text).join(' ');
   }
 }
 
@@ -398,8 +460,7 @@ class _TabButton extends StatelessWidget {
           boxShadow: selected
               ? [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 3)
+                      color: Colors.black.withValues(alpha: 0.1), blurRadius: 3)
                 ]
               : null,
         ),
@@ -487,14 +548,14 @@ class _GrammarPanel extends StatelessWidget {
     if (mistakes.isEmpty) {
       return _InfoLine(
           text: correctedText.isEmpty
-              ? 'Ошибок грамматики не найдено.'
-              : 'Правильно: $correctedText');
+              ? 'No grammar mistakes found.'
+              : 'Correct: $correctedText');
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Ошибки:',
+        const Text('Mistakes:',
             style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -507,22 +568,22 @@ class _GrammarPanel extends StatelessWidget {
             2: FlexColumnWidth(1.5),
           },
           children: [
-            TableRow(
-              decoration: const BoxDecoration(color: Color(0xFFF1F3F5)),
-              children: const [
-                _TableHeader('Тип'),
-                _TableHeader('Было'),
-                _TableHeader('Правильно'),
+            const TableRow(
+              decoration: BoxDecoration(color: Color(0xFFF1F3F5)),
+              children: [
+                _TableHeader('Type'),
+                _TableHeader('Original'),
+                _TableHeader('Correct'),
               ],
             ),
             ...mistakes.map((e) => TableRow(
                   decoration: const BoxDecoration(
                       border: Border(
                           top: BorderSide(
-                              color: Color(0xFFE9ECEF),
-                              width: 0.5))),
+                              color: Color(0xFFE9ECEF), width: 0.5))),
                   children: [
-                    _TableCell(_labelForType(e.type), color: const Color(0xFFC92A2A)),
+                    _TableCell(_labelForType(e.type),
+                        color: const Color(0xFFC92A2A)),
                     _TableCell(e.original),
                     _TableCell(e.corrected, color: const Color(0xFF2F9E44)),
                   ],
@@ -535,9 +596,10 @@ class _GrammarPanel extends StatelessWidget {
 
   String _labelForType(String type) {
     final lower = type.toLowerCase();
-    if (lower.contains('vocab')) return 'Словарь';
-    if (lower.contains('pronunciation')) return 'Произношение';
-    return 'Время глагола';
+    if (lower.contains('vocab')) return 'Vocabulary';
+    if (lower.contains('pronunciation')) return 'Pronunciation';
+    if (lower.contains('tense')) return 'Verb tense';
+    return 'Grammar';
   }
 }
 
@@ -548,50 +610,20 @@ class _PronunciationPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final word = mistakes.isEmpty ? 'meet' : mistakes.first.original;
+    if (mistakes.isEmpty) {
+      return const _InfoLine(
+        text: 'No pronunciation issues detected from this recording.',
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const _AvatarIcon(
-                icon: Icons.person_outline,
-                bgColor: Color(0xFFE8F4FD)),
-            const SizedBox(width: 8),
-            const _IconBtn(icon: Icons.volume_up_outlined),
-            const SizedBox(width: 8),
-            const _AvatarIcon(
-                icon: Icons.psychology_outlined,
-                bgColor: Color(0xFFFFF3E0),
-                iconColor: Color(0xFFE67700)),
-            const SizedBox(width: 8),
-            const _IconBtn(icon: Icons.volume_up_outlined),
-            const Spacer(),
-            const Text('PRACTICE',
-                style:
-                    TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(width: 8),
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F3F5),
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: Colors.grey[300]!,
-                    width: 0.5),
-              ),
-              child: const Icon(Icons.mic,
-                  size: 18, color: Color(0xFF3B5BDB)),
-            ),
-          ],
+        const Text(
+          'Pronunciation notes:',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black),
         ),
-        const SizedBox(height: 18),
-        Text(word,
-            style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-                color: Colors.black)),
         const SizedBox(height: 8),
         Table(
           columnWidths: const {
@@ -600,71 +632,36 @@ class _PronunciationPanel extends StatelessWidget {
             2: FlexColumnWidth(3),
           },
           children: [
-            TableRow(
-              decoration: const BoxDecoration(color: Color(0xFFF1F3F5)),
-              children: const [
-                _TableHeader('Syllable'),
-                _TableHeader('Phone'),
-                _TableHeader('Feedback'),
-              ],
-            ),
-            TableRow(
-              decoration: const BoxDecoration(
-                  border: Border(
-                      top: BorderSide(
-                          color: Color(0xFFE9ECEF),
-                          width: 0.5))),
-              children: [
-                _TableCell(word, bold: true),
-                const _TableCell('/m/'),
-                const _TableCell('Excellent!', color: Color(0xFF2F9E44)),
-              ],
-            ),
             const TableRow(
-              decoration: BoxDecoration(
-                  border: Border(
-                      top: BorderSide(
-                          color: Color(0xFFE9ECEF),
-                          width: 0.5))),
+              decoration: BoxDecoration(color: Color(0xFFF1F3F5)),
               children: [
-                _TableCell(''),
-                _TableCell('/ii/'),
-                _TableCell('Very good', color: Color(0xFF2F9E44)),
+                _TableHeader('Heard'),
+                _TableHeader('Target'),
+                _TableHeader('Practice'),
               ],
             ),
-            const TableRow(
-              decoration: BoxDecoration(
-                  border: Border(
-                      top: BorderSide(
-                          color: Color(0xFFE9ECEF),
-                          width: 0.5))),
-              children: [
-                _TableCell(''),
-                _TableCell('/t/'),
-                _TableCell('Sounded like d', color: Color(0xFFC92A2A)),
-              ],
-            ),
+            ...mistakes.map((mistake) => TableRow(
+                  decoration: const BoxDecoration(
+                      border: Border(
+                          top: BorderSide(
+                              color: Color(0xFFE9ECEF), width: 0.5))),
+                  children: [
+                    _TableCell(mistake.original),
+                    _TableCell(mistake.corrected,
+                        color: const Color(0xFF2F9E44)),
+                    _TableCell(_practiceTip(mistake.corrected)),
+                  ],
+                )),
           ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            3,
-            (i) => Container(
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                color:
-                    i == 0 ? const Color(0xFF3B5BDB) : Colors.grey[300],
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
         ),
       ],
     );
+  }
+
+  String _practiceTip(String target) {
+    final clean = target.trim();
+    if (clean.isEmpty) return 'Repeat it slowly, then at normal speed.';
+    return 'Say "$clean" slowly, then repeat it in the full sentence.';
   }
 }
 
@@ -673,11 +670,9 @@ class _TableHeader extends StatelessWidget {
   const _TableHeader(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Text(text,
-            style: const TextStyle(
-                fontSize: 12, color: Colors.grey)),
+            style: const TextStyle(fontSize: 12, color: Colors.grey)),
       );
 }
 
@@ -688,14 +683,12 @@ class _TableCell extends StatelessWidget {
   const _TableCell(this.text, {this.color, this.bold = false});
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Text(text,
             style: TextStyle(
                 fontSize: 13,
                 color: color,
-                fontWeight:
-                    bold ? FontWeight.w500 : FontWeight.normal)),
+                fontWeight: bold ? FontWeight.w500 : FontWeight.normal)),
       );
 }
 
@@ -711,8 +704,7 @@ class _AvatarIcon extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         width: 32,
         height: 32,
-        decoration: BoxDecoration(
-            color: bgColor, shape: BoxShape.circle),
+        decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
         child: Icon(icon, size: 16, color: iconColor),
       );
 }
@@ -725,7 +717,7 @@ class _IconBtn extends StatelessWidget {
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: const Color(0xFF3B5BDB).withOpacity(0.12),
+          color: const Color(0xFF3B5BDB).withValues(alpha: 0.12),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, size: 15, color: const Color(0xFF3B5BDB)),
@@ -744,7 +736,7 @@ class _ActionButton extends StatelessWidget {
           width: 28,
           height: 28,
           decoration: BoxDecoration(
-            color: const Color(0xFF3B5BDB).withOpacity(0.12),
+            color: const Color(0xFF3B5BDB).withValues(alpha: 0.12),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, size: 15, color: const Color(0xFF3B5BDB)),
@@ -816,7 +808,7 @@ class _DetailBlock extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF3B5BDB).withOpacity(0.06),
+        color: const Color(0xFF3B5BDB).withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE9ECEF)),
       ),

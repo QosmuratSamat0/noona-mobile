@@ -24,12 +24,10 @@ class ApiClient {
   }
 
   Future<http.Response> rawGet(String path, String token) {
-    return _client
-        .get(
-          Uri.parse('${AppConfig.apiUrl}$path'),
-          headers: {'Authorization': 'Bearer $token'},
-        )
-        .timeout(timeout);
+    return _client.get(
+      Uri.parse('${AppConfig.apiUrl}$path'),
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(timeout);
   }
 
   Future<Map<String, dynamic>> post(
@@ -37,7 +35,8 @@ class ApiClient {
     Map<String, dynamic> body, [
     String? token,
   ]) async {
-    return decode(await rawPost(path, body, token), path) as Map<String, dynamic>;
+    return decode(await rawPost(path, body, token), path)
+        as Map<String, dynamic>;
   }
 
   Future<http.Response> rawPost(
@@ -57,22 +56,53 @@ class ApiClient {
         .timeout(timeout);
   }
 
-  Future<void> upload(String path, File file, String token) async {
-    decode(await rawUpload(path, file, token), path);
+  Future<http.Response> rawPut(
+    String path,
+    Map<String, dynamic> body,
+    String token,
+  ) {
+    return _client
+        .put(
+          Uri.parse('${AppConfig.apiUrl}$path'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(timeout);
   }
 
-  Future<http.Response> rawUpload(String path, File file, String token) async {
-    final request = http.MultipartRequest('POST', Uri.parse('${AppConfig.apiUrl}$path'));
+  Future<void> upload(
+    String path,
+    File file,
+    String token, {
+    Map<String, String> fields = const {},
+  }) async {
+    decode(await rawUpload(path, file, token, fields: fields), path);
+  }
+
+  Future<http.Response> rawUpload(
+    String path,
+    File file,
+    String token, {
+    Map<String, String> fields = const {},
+  }) async {
+    final request =
+        http.MultipartRequest('POST', Uri.parse('${AppConfig.apiUrl}$path'));
     request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(fields);
     request.files.add(await http.MultipartFile.fromPath('file', file.path));
     final streamed = await request.send().timeout(const Duration(seconds: 30));
     return http.Response.fromStream(streamed);
   }
 
   dynamic decode(http.Response response, String path) {
-    final dynamic data = response.body.isEmpty ? null : jsonDecode(response.body);
+    final dynamic data =
+        response.body.isEmpty ? null : jsonDecode(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final message = data is Map ? data['error'] ?? data['message'] : response.body;
+      final message =
+          data is Map ? data['error'] ?? data['message'] : response.body;
       throw ApiException('$path failed: $message');
     }
     return data;

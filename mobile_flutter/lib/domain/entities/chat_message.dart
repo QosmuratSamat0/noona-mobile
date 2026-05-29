@@ -112,11 +112,15 @@ class ChatMessage {
   }
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    final rawFeedback = json['feedback'];
     return ChatMessage(
       id: '${json['id']}',
       role: json['role'] == 'user' ? 'user' : 'coach',
       text: _cleanCoachText('${json['content'] ?? ''}'),
       audioUrl: '${json['audio_url'] ?? ''}'.trim().isEmpty ? null : '${json['audio_url']}',
+      feedback: rawFeedback is Map<String, dynamic>
+          ? ChatFeedback.fromQuick(rawFeedback)
+          : null,
     );
   }
 }

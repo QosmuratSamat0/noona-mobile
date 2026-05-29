@@ -19,48 +19,34 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Server ───────────────────────────────────────────────────────────────
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8001)
     log_level: str = Field(default="info")
 
-    # ── gRPC ─────────────────────────────────────────────────────────────────
     grpc_host: str = Field(default="0.0.0.0")
     grpc_port: int = Field(default=50051)
 
-    # ── Whisper model ────────────────────────────────────────────────────────
-    # small = best CPU/accuracy tradeoff for ru/kk/en
     whisper_model_size: Literal["tiny", "base", "small", "medium", "large-v3"] = Field(
         default="small"
     )
-    # Override device: "auto" detects cuda at runtime, falls back to cpu
     whisper_device: Literal["auto", "cpu", "cuda"] = Field(default="auto")
-    # Override compute type: "auto" picks float16 on cuda, int8 on cpu
     whisper_compute_type: Literal["auto", "int8", "float16", "float32"] = Field(
         default="auto"
     )
-    # Number of CPU threads (should match container vCPU count)
     whisper_cpu_threads: int = Field(default=2, ge=1)
-    # Number of workers inside CTranslate2 (1 = sequential, safe for low-RAM)
     whisper_num_workers: int = Field(default=1, ge=1)
-    # Language hint for short recordings. Empty string enables auto-detect.
     whisper_language: str = Field(default="en")
-    # Beam size 1 is much faster on CPU and good enough for short voice notes.
     whisper_beam_size: int = Field(default=1, ge=1, le=10)
 
-    # ── VAD ──────────────────────────────────────────────────────────────────
     vad_enabled: bool = Field(default=True)
-    # Minimum speech probability to keep a segment (0.5 = Silero default)
     vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
 
-    # ── MinIO ────────────────────────────────────────────────────────────────
     minio_endpoint: str = Field(default="localhost:9000")
     minio_access_key: str = Field(default="admin")
     minio_secret_key: str = Field(default="password")
     minio_use_ssl: bool = Field(default=False)
     minio_default_bucket: str = Field(default="voice-input")
 
-    # ── Temp storage ─────────────────────────────────────────────────────────
     tmp_dir: str = Field(default="/tmp/noona_stt")
 
 

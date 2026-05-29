@@ -2,6 +2,8 @@ package chat
 
 import (
 	"time"
+
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 )
 
 type Role string
@@ -18,10 +20,11 @@ type Session struct {
 }
 
 type Message struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Role      Role      `json:"role"`
-	Content   string    `json:"content"`
-	AudioURL  string    `json:"audio_url,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string                    `json:"id"`
+	SessionID string                    `json:"session_id"`
+	Role      Role                      `json:"role"`
+	Content   string                    `json:"content"`
+	AudioURL  string                    `json:"audio_url,omitempty"`
+	Feedback  *linguistic.QuickFeedback `json:"feedback,omitempty"`
+	CreatedAt time.Time                 `json:"created_at"`
 }

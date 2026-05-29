@@ -36,11 +36,6 @@ export function ChatScreen({ token }: { token: string }) {
               }
             : undefined,
       },
-      {
-        id: `coach-${Date.now()}`,
-        role: 'coach',
-        text: correction.corrected ? `Good work. A smoother version is: "${correction.corrected}"` : 'Nice! Keep going.',
-      },
     ]);
   }, []);
 
@@ -156,7 +151,7 @@ export function ChatScreen({ token }: { token: string }) {
       const uri = recording.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error('No recording file created.');
-      await uploadAudio(uri, token);
+      await uploadAudio(uri, token, sessionId);
       setStatus('processing');
     } catch (error) {
       setStatus('idle');

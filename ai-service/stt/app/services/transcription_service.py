@@ -51,7 +51,6 @@ class TranscriptionService:
         bucket = request.bucket_name or self._settings.minio_default_bucket
         object_key = request.file_path
 
-        # Build a unique local path to avoid collisions between concurrent calls
         tmp_dir = Path(self._settings.tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(object_key).suffix or ".webm"
@@ -65,11 +64,9 @@ class TranscriptionService:
         )
 
         try:
-            # ── Step 1: Download from MinIO ───────────────────────────────────
             self._minio.download(bucket, object_key, local_path)
             logger.info("Downloaded audio to %s", local_path)
 
-            # ── Step 2: Transcribe (VAD + Whisper) ────────────────────────────
             segments_iter, info = run_transcription(
                 handle=self._model,
                 audio_path=local_path,
@@ -79,7 +76,6 @@ class TranscriptionService:
                 vad_threshold=self._settings.vad_threshold,
             )
 
-            # Materialise the lazy generator (Whisper streams segments)
             segments: list[TranscriptSegment] = []
             text_parts: list[str] = []
 
@@ -113,11 +109,9 @@ class TranscriptionService:
             )
 
         finally:
-            # ── Step 3: Always clean up the local temp file ───────────────────
             if os.path.exists(local_path):
                 try:
                     os.remove(local_path)
                     logger.debug("Removed temp file: %s", local_path)
                 except OSError as exc:
-                    # Non-fatal — log and continue
                     logger.warning("Failed to remove temp file %s: %s", local_path, exc)

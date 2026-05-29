@@ -33,12 +33,14 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
         minio: MinioAdapter,
         settings: Settings
     ) -> None:
+        if model_handle is None:
+            raise RuntimeError("TTSServicer requires a loaded Piper model")
+
         self._model = model_handle
         self._minio = minio
         self._settings = settings
         self._executor = ThreadPoolExecutor(max_workers=settings.max_workers)
         
-        # Ensure bucket and lifecycle policy at startup
         self._init_storage()
 
     def _init_storage(self):
@@ -82,16 +84,13 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
                             wav_file.writeframes(chunk)
                             loop.call_soon_threadsafe(queue.put_nowait, chunk)
                     
-                    # Signal end of stream
                     loop.call_soon_threadsafe(queue.put_nowait, None)
                 except Exception as e:
                     logger.exception("Error in piper producer thread")
                     loop.call_soon_threadsafe(queue.put_nowait, e)
 
-            # Run producer in thread pool
             loop.run_in_executor(self._executor, producer)
 
-            # Consume chunks from queue and yield to gRPC stream
             while True:
                 item = await queue.get()
                 if item is None:
@@ -100,7 +99,6 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
                     raise item
                 yield tts_pb2.AudioChunk(data=item)
 
-            # Generate presigned URL for the saved file
             url = await loop.run_in_executor(
                 self._executor,
                 self._minio.get_presigned_url,
@@ -109,10 +107,8 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
                 self._settings.minio_presigned_expiry
             )
 
-            # Final chunk carries the URL
             yield tts_pb2.AudioChunk(data=b"", file_url=url)
 
-            # Fire-and-forget: upload to MinIO and cleanup local file
             asyncio.create_task(self._upload_and_cleanup(local_path, object_name))
 
         except Exception as e:

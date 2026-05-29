@@ -5,7 +5,9 @@ import (
 	"io"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/audio"
+	chatDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
+	userDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/user"
 )
 
 type StorageRepo interface {
@@ -19,6 +21,15 @@ type JobRepo interface {
 
 type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
+}
+
+type ChatRepo interface {
+	GetSession(ctx context.Context, sessionID string) (*chatDomain.Session, error)
+	SaveMessage(ctx context.Context, msg *chatDomain.Message) error
+}
+
+type UserRepo interface {
+	GetUserByID(ctx context.Context, id string) (*userDomain.User, error)
 }
 
 type LinguisticUseCase interface {
@@ -37,7 +48,7 @@ type STTService interface {
 }
 
 type LLMProvider interface {
-	StreamReply(ctx context.Context, transcript string) (<-chan string, error)
+	StreamReply(ctx context.Context, transcript, cefrLevel string) (<-chan string, error)
 	QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error)
 	Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error)
 }

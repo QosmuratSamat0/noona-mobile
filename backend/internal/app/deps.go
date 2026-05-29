@@ -62,11 +62,11 @@ type Deps struct {
 
 func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, hub *wsHub.Hub, cfg *config.Config) (*Deps, error) {
 	// Repositories
-	userRepo := userRepo.New(db)
+	userRepo := userRepo.New(db, redisClient)
 	authRepo := authRepo.New(db)
-	chatRepo := chatRepo.New(db)
-	linguisticRepo := linguisticRepo.New(db)
-	activityRepo := activityRepo.New(db)
+	chatRepo := chatRepo.New(db, redisClient)
+	linguisticRepo := linguisticRepo.New(db, redisClient)
+	activityRepo := activityRepo.New(db, redisClient)
 
 	audioStorage := audioMinioRepo.NewStorageRepo(minioClient, "voice-input")
 	audioJob := audioRedisRepo.NewJobRepo(redisClient, cfg.AudioWorkerQueue)
@@ -75,8 +75,8 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	userUC := userUseCase.NewUseCase(userRepo)
 	authUC := authUseCase.NewUseCase(userRepo, authRepo, cfg.JWTSecret)
 	activityUC := activityUseCase.NewUseCase(activityRepo)
-	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC)
 	linguisticUC := linguisticUseCase.NewUseCase(linguisticRepo)
+	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC, userRepo, linguisticUC)
 
 	// AI infrastructure — gRPC client calls Python faster-whisper service
 	var stt audioUseCase.STTService
@@ -147,11 +147,13 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	default:
 		return nil, fmt.Errorf("unknown LLM_PROVIDER %q; use gemini, groq, or openrouter", cfg.LLMProvider)
 	}
-	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm).WithTTS(tts)
+	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm, userRepo, linguisticUC).WithTTS(tts)
 
 	audioUC := audioUseCase.NewLowLatencyUseCase(
 		audioStorage,
 		audioJob,
+		chatRepo,
+		userRepo,
 		activityUC,
 		stt,
 		llm,

@@ -45,10 +45,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger(__name__)
     logger.info("STT service starting up…")
 
-    # 1. Load Whisper model (shared by HTTP + gRPC)
     model_handle = load_model(settings)
 
-    # 2. Build MinIO adapter (used by HTTP endpoint)
     minio = MinioAdapter(
         endpoint=settings.minio_endpoint,
         access_key=settings.minio_access_key,
@@ -56,14 +54,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         use_ssl=settings.minio_use_ssl,
     )
 
-    # 3. HTTP transcription service (file-based, legacy path)
     app.state.transcription_service = TranscriptionService(
         model_handle=model_handle,
         minio=minio,
         settings=settings,
     )
 
-    # 4. Start gRPC server as a background asyncio task
     grpc_stop = asyncio.Event()
     grpc_task = asyncio.create_task(
         run_grpc_server(model_handle, settings, grpc_stop)
@@ -101,9 +97,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.port,
     )
 
-    yield  # ← server handles requests
+    yield  
 
-    # Shutdown: stop gRPC, wait for drain
     logger.info("STT service shutting down…")
     grpc_stop.set()
     await asyncio.wait_for(grpc_task, timeout=10)

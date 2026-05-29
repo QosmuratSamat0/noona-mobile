@@ -3,6 +3,6 @@ class AppConfig {
 
   static const apiUrl = String.fromEnvironment(
     'API_URL',
-    defaultValue: 'http://10.0.2.2:8084/api/v1',
+    defaultValue: 'http://192.168.8.40:8084/api/v1',
   );
 }

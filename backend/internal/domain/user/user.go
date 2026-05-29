@@ -15,6 +15,7 @@ type User struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"password,omitempty"`
 	Role         Role      `json:"role"`
+	CEFRLevel    string    `json:"cefr_level"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

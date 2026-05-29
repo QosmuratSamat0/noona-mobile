@@ -4,18 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/activity"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/cache/jsoncache"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type PostgresRepo struct {
-	db *pgxpool.Pool
+	db       *pgxpool.Pool
+	cache    *redis.Client
+	cacheTTL time.Duration
 }
 
-func New(db *pgxpool.Pool) *PostgresRepo {
-	return &PostgresRepo{db: db}
+func New(db *pgxpool.Pool, cache ...*redis.Client) *PostgresRepo {
+	repo := &PostgresRepo{
+		db:       db,
+		cacheTTL: 2 * time.Minute,
+	}
+	if len(cache) > 0 {
+		repo.cache = cache[0]
+	}
+	return repo
 }
 
 func (r *PostgresRepo) RecordActivity(ctx context.Context, userID string) error {
@@ -45,10 +57,16 @@ func (r *PostgresRepo) RecordActivity(ctx context.Context, userID string) error 
 	if err != nil {
 		return fmt.Errorf("record activity: %w", err)
 	}
+	jsoncache.Delete(ctx, r.cache, dailyStatsCacheKey(userID), streakCacheKey(userID))
 	return nil
 }
 
 func (r *PostgresRepo) GetDailyStats(ctx context.Context, userID string) ([]*domain.DailyStat, error) {
+	key := dailyStatsCacheKey(userID)
+	if cached, ok := jsoncache.Get[[]*domain.DailyStat](ctx, r.cache, key); ok {
+		return cached, nil
+	}
+
 	query := `SELECT id, user_id, date, session_count FROM daily_stats WHERE user_id = $1 ORDER BY date DESC`
 
 	rows, err := r.db.Query(ctx, query, userID)
@@ -65,10 +83,19 @@ func (r *PostgresRepo) GetDailyStats(ctx context.Context, userID string) ([]*dom
 		}
 		stats = append(stats, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	jsoncache.Set(ctx, r.cache, key, stats, r.cacheTTL)
 	return stats, nil
 }
 
 func (r *PostgresRepo) GetStreak(ctx context.Context, userID string) (*domain.Streak, error) {
+	key := streakCacheKey(userID)
+	if cached, ok := jsoncache.Get[*domain.Streak](ctx, r.cache, key); ok && cached != nil {
+		return cached, nil
+	}
+
 	query := `SELECT id, user_id, current_streak, longest_streak, last_activity_date FROM streaks WHERE user_id = $1`
 
 	s := &domain.Streak{}
@@ -76,9 +103,20 @@ func (r *PostgresRepo) GetStreak(ctx context.Context, userID string) (*domain.St
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// If no streak record, return a default empty one instead of error
-			return &domain.Streak{UserID: userID}, nil
+			streak := &domain.Streak{UserID: userID}
+			jsoncache.Set(ctx, r.cache, key, streak, r.cacheTTL)
+			return streak, nil
 		}
 		return nil, fmt.Errorf("get streak: %w", err)
 	}
+	jsoncache.Set(ctx, r.cache, key, s, r.cacheTTL)
 	return s, nil
+}
+
+func dailyStatsCacheKey(userID string) string {
+	return "activity:daily:" + userID
+}
+
+func streakCacheKey(userID string) string {
+	return "activity:streak:" + userID
 }

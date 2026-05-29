@@ -13,7 +13,7 @@ import (
 )
 
 type AudioUseCase interface {
-	UploadAudio(ctx context.Context, userID string, file io.Reader, fileSize int64, contentType, ext string) (string, error)
+	UploadAudio(ctx context.Context, userID, sessionID string, file io.Reader, fileSize int64, contentType, ext string) (string, error)
 }
 
 type AudioHandler struct {
@@ -75,8 +75,9 @@ func (h *AudioHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	ext := filepath.Ext(header.Filename)
 	contentType := header.Header.Get("Content-Type")
+	sessionID := r.FormValue("session_id")
 
-	jobID, err := h.audioUC.UploadAudio(r.Context(), user.ID, file, header.Size, contentType, ext)
+	jobID, err := h.audioUC.UploadAudio(r.Context(), user.ID, sessionID, file, header.Size, contentType, ext)
 	if err != nil {
 		log.Error("failed to upload audio", "error", err)
 		render.Status(r, http.StatusInternalServerError)

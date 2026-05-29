@@ -25,20 +25,20 @@ var upgrader = websocket.Upgrader{
 		if origin == "" {
 			return true
 		}
-		
+
 		u, err := url.Parse(origin)
 		if err != nil {
 			return false
 		}
-		
+
 		if u.Host == r.Host {
 			return true
 		}
-		
+
 		if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" {
 			return true
 		}
-		
+
 		// In a production environment, this should validate against a config-driven allowlist.
 		return false
 	},
@@ -93,7 +93,13 @@ func readPump(conn *websocket.Conn, hub *wsHub.Hub, userID string, ch chan []byt
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(
+				err,
+				websocket.CloseGoingAway,
+				websocket.CloseAbnormalClosure,
+				websocket.CloseNoStatusReceived,
+				websocket.CloseNormalClosure,
+			) {
 				slog.Error("websocket error", "error", err)
 			}
 			break
@@ -114,7 +120,10 @@ func writePump(conn *websocket.Conn, ch chan []byte) {
 		case message, ok := <-ch:
 			conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				conn.WriteMessage(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				)
 				return
 			}
 

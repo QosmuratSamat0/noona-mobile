@@ -70,16 +70,12 @@ func NewProvider(apiKey, url, model string) (*Provider, error) {
 	}, nil
 }
 
-func (p *Provider) StreamReply(ctx context.Context, transcript string) (<-chan string, error) {
+func (p *Provider) StreamReply(ctx context.Context, transcript, cefrLevel string) (<-chan string, error) {
 	out := make(chan string, 1)
 	go func() {
 		defer close(out)
 		text, err := p.complete(ctx, []message{
-			{Role: "system", Content: `You are Noona, an English speaking coach inside a chat app.
-Reply in plain text only: no Markdown, no asterisks, no bullet symbols, no emojis.
-If the user says hello/hey/hi, greet them briefly and ask one simple speaking question.
-If the user writes an English sentence, correct the most important issue and ask one short follow-up question.
-Keep replies under 45 words.`},
+			{Role: "system", Content: coachSystemPrompt(cefrLevel)},
 			{Role: "user", Content: transcript},
 		}, false)
 		if err != nil {
@@ -91,6 +87,22 @@ Keep replies under 45 words.`},
 		}
 	}()
 	return out, nil
+}
+
+func coachSystemPrompt(cefrLevel string) string {
+	level := strings.ToUpper(strings.TrimSpace(cefrLevel))
+	if level == "" {
+		level = "A1"
+	}
+	return fmt.Sprintf(`You are Noona, a cheerful, friendly English speaking coach inside a chat app.
+The learner self-selected CEFR level is %s. Adapt your vocabulary, sentence length, and question difficulty to this level.
+Reply in plain text only: no Markdown, no asterisks, no bullet symbols.
+Naturally model correct grammar by rephrasing the learner's idea in fluent English; do not point out mistakes or mention grammar errors.
+Every reply must include one recommendation, fact, tip, or opinion.
+Use at most 3 sentences.
+End with either a question or a suggestion.
+Rotate conversation themes when the user's context allows, using this cycle: everyday life, work, food, travel, movies, music, technology, a random personal anecdote.
+If the user says hello/hey/hi, greet them briefly and start with the next simple themed speaking prompt.`, level)
 }
 
 func (p *Provider) QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error) {
@@ -162,6 +174,7 @@ func (p *Provider) analyzeOnce(ctx context.Context, transcript string) (*linguis
 	text, err := p.complete(ctx, []message{
 		{Role: "system", Content: `You are Noona, an expert English linguistic analyst.
 Analyze the user's spoken English transcript and provide feedback in JSON format.
+Only include pronunciation mistakes when the transcript or upstream speech analysis provides explicit pronunciation evidence. Do not guess pronunciation from text alone.
 
 The JSON schema must be:
 {

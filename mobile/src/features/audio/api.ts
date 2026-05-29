@@ -1,8 +1,9 @@
 import { API_URL } from '../../shared/config/api';
 import { parseResponse, withNetworkTimeout } from '../../shared/api/http';
 
-export async function uploadAudio(uri: string, token: string) {
+export async function uploadAudio(uri: string, token: string, sessionId?: string | null) {
   const form = new FormData();
+  if (sessionId) form.append('session_id', sessionId);
   form.append('file', {
     uri,
     name: 'recording.m4a',

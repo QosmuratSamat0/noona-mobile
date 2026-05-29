@@ -45,7 +45,7 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 
 	// Task A: Fast Streaming Reply for UI
 	g.Go(func() error {
-		replyChan, err := p.llm.StreamReply(gCtx, transcript)
+		replyChan, err := p.llm.StreamReply(gCtx, transcript, "A1")
 		if err != nil {
 			slog.Warn("stream reply failed; continuing without streaming", "job_id", job.JobID, "user_id", job.UserID, "error", err)
 			return nil
@@ -87,11 +87,6 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 		_, err = p.linguistic.SaveCorrection(gCtx, t.ID, analysis.Correction, analysis.Explanation, analysis.CEFRLevel)
 		if err != nil {
 			slog.Warn("failed to save correction", "error", err)
-		} else {
-			// Update profile CEFR level
-			if err := p.linguistic.UpdateCEFRLevel(gCtx, job.UserID, analysis.CEFRLevel); err != nil {
-				slog.Warn("failed to update user cefr level", "error", err)
-			}
 		}
 
 		// 3. Save mistakes
@@ -112,14 +107,7 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 
 	slog.Info("llm processing completed", "job_id", job.JobID)
 
-	// 3. TTS - Piper -> audio_url (optional, based on correction)
-	audioURL, err := p.tts.GenerateAudio(ctx, analysis.Correction)
-	if err != nil {
-		slog.Warn("tts failed", "job_id", job.JobID, "error", err)
-		// Continue even if TTS fails
-	} else {
-		slog.Info("tts completed", "job_id", job.JobID, "audio_url", audioURL)
-	}
+	// Corrections belong to grammar feedback. Do not turn them into a chat/TTS reply.
 
 	payload := map[string]interface{}{
 		"type": "audio_processing_result",
@@ -127,7 +115,6 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 			"job_id":     job.JobID,
 			"transcript": transcript,
 			"analysis":   analysis,
-			"audio_url":  audioURL,
 		},
 	}
 

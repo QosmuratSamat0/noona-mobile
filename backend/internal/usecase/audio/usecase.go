@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/audio"
+	chatDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	"github.com/google/uuid"
 )
@@ -17,6 +18,8 @@ import (
 type UseCase struct {
 	storage    StorageRepo
 	jobRepo    JobRepo
+	chatRepo   ChatRepo
+	userRepo   UserRepo
 	activityUC ActivityUseCase
 	stt        STTService
 	llm        LLMProvider
@@ -36,6 +39,8 @@ func NewUseCase(storage StorageRepo, jobRepo JobRepo, activityUC ActivityUseCase
 func NewLowLatencyUseCase(
 	storage StorageRepo,
 	jobRepo JobRepo,
+	chatRepo ChatRepo,
+	userRepo UserRepo,
 	activityUC ActivityUseCase,
 	stt STTService,
 	llm LLMProvider,
@@ -46,6 +51,8 @@ func NewLowLatencyUseCase(
 	return &UseCase{
 		storage:    storage,
 		jobRepo:    jobRepo,
+		chatRepo:   chatRepo,
+		userRepo:   userRepo,
 		activityUC: activityUC,
 		stt:        stt,
 		llm:        llm,
@@ -55,9 +62,9 @@ func NewLowLatencyUseCase(
 	}
 }
 
-func (uc *UseCase) UploadAudio(ctx context.Context, userID string, file io.Reader, fileSize int64, contentType, ext string) (string, error) {
+func (uc *UseCase) UploadAudio(ctx context.Context, userID, sessionID string, file io.Reader, fileSize int64, contentType, ext string) (string, error) {
 	if uc.stt != nil && uc.llm != nil && uc.ws != nil {
-		return uc.uploadAudioFast(ctx, userID, file, fileSize, contentType, ext)
+		return uc.uploadAudioFast(ctx, userID, sessionID, file, fileSize, contentType, ext)
 	}
 
 	filePath, err := uc.storage.UploadFile(ctx, file, fileSize, contentType, ext)
@@ -87,7 +94,7 @@ func (uc *UseCase) UploadAudio(ctx context.Context, userID string, file io.Reade
 	return jobID, nil
 }
 
-func (uc *UseCase) uploadAudioFast(ctx context.Context, userID string, file io.Reader, fileSize int64, contentType, ext string) (string, error) {
+func (uc *UseCase) uploadAudioFast(ctx context.Context, userID, sessionID string, file io.Reader, fileSize int64, contentType, ext string) (string, error) {
 	audioBytes, err := io.ReadAll(io.LimitReader(file, 32<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read audio: %w", err)
@@ -97,12 +104,12 @@ func (uc *UseCase) uploadAudioFast(ctx context.Context, userID string, file io.R
 	}
 
 	jobID := uuid.New().String()
-	go uc.processFastPath(context.Background(), jobID, userID, audioBytes, fileSize, contentType, ext)
+	go uc.processFastPath(context.Background(), jobID, userID, sessionID, audioBytes, fileSize, contentType, ext)
 
 	return jobID, nil
 }
 
-func (uc *UseCase) processFastPath(ctx context.Context, jobID, userID string, audioBytes []byte, fileSize int64, contentType, ext string) {
+func (uc *UseCase) processFastPath(ctx context.Context, jobID, userID, sessionID string, audioBytes []byte, fileSize int64, contentType, ext string) {
 	started := time.Now()
 	log := slog.With("job_id", jobID, "user_id", userID)
 	log.Info("fast audio path started", "bytes", len(audioBytes), "content_type", contentType)
@@ -131,6 +138,7 @@ func (uc *UseCase) processFastPath(ctx context.Context, jobID, userID string, au
 		"type": "transcript_final",
 		"data": map[string]any{"job_id": jobID, "text": transcript},
 	})
+	userMessage := uc.saveChatMessage(ctx, log, userID, sessionID, chatDomain.RoleUser, transcript, "")
 
 	feedback, err := uc.llm.QuickFeedback(ctx, transcript)
 	if err != nil {
@@ -152,10 +160,10 @@ func (uc *UseCase) processFastPath(ctx context.Context, jobID, userID string, au
 	})
 	log.Info("fast audio path completed", "latency_ms", time.Since(started).Milliseconds())
 
-	go uc.processBackgroundPath(context.Background(), jobID, userID, transcript, feedback, audioBytes, fileSize, contentType, ext)
+	go uc.processBackgroundPath(context.Background(), jobID, userID, sessionID, transcript, feedback, userMessage, audioBytes, fileSize, contentType, ext)
 }
 
-func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, transcript string, feedback *linguistic.QuickFeedback, audioBytes []byte, fileSize int64, contentType, ext string) {
+func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, sessionID, transcript string, feedback *linguistic.QuickFeedback, userMessage *chatDomain.Message, audioBytes []byte, fileSize int64, contentType, ext string) {
 	_ = fileSize
 	log := slog.With("job_id", jobID, "user_id", userID)
 
@@ -186,7 +194,11 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, tra
 	}
 
 	if uc.linguistic != nil && analysis != nil {
-		t, err := uc.linguistic.SaveTranscript(ctx, "", transcript)
+		messageID := ""
+		if userMessage != nil {
+			messageID = userMessage.ID
+		}
+		t, err := uc.linguistic.SaveTranscript(ctx, messageID, transcript)
 		if err != nil {
 			log.Error("background transcript save failed", "error", err)
 		} else {
@@ -198,11 +210,6 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, tra
 					log.Error("background mistake save failed", "error", err)
 				}
 			}
-			if analysis.CEFRLevel != "" {
-				if err := uc.linguistic.UpdateCEFRLevel(ctx, userID, analysis.CEFRLevel); err != nil {
-					log.Error("background cefr update failed", "error", err)
-				}
-			}
 		}
 
 		_ = uc.ws.PushToUser(ctx, userID, map[string]any{
@@ -211,15 +218,95 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, tra
 		})
 	}
 
-	if uc.tts != nil && analysis != nil {
-		audioURL, err := uc.tts.GenerateAudio(ctx, analysis.Correction)
-		if err != nil {
-			log.Error("background tts failed", "error", err)
-			return
-		}
-		_ = uc.ws.PushToUser(ctx, userID, map[string]any{
-			"type": "tts_ready",
-			"data": map[string]any{"job_id": jobID, "audio_url": audioURL},
-		})
+	if uc.tts == nil || uc.llm == nil {
+		return
 	}
+
+	reply, err := collectStreamReply(ctx, uc.llm, transcript, uc.userCEFRLevel(ctx, userID))
+	if err != nil {
+		log.Error("background coach reply failed", "error", err)
+		reply = fallbackCoachReply()
+	}
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		reply = fallbackCoachReply()
+	}
+
+	_ = uc.ws.PushToUser(ctx, userID, map[string]any{
+		"type": "coach_reply",
+		"data": map[string]any{"job_id": jobID, "text": reply},
+	})
+
+	log.Info("background coach tts started")
+	audioURL, err := uc.tts.GenerateAudio(ctx, reply)
+	if err != nil {
+		log.Error("background coach tts failed", "error", err)
+		uc.saveChatMessage(ctx, log, userID, sessionID, chatDomain.RoleAI, reply, "")
+		return
+	}
+	log.Info("background coach tts completed")
+	uc.saveChatMessage(ctx, log, userID, sessionID, chatDomain.RoleAI, reply, audioURL)
+
+	_ = uc.ws.PushToUser(ctx, userID, map[string]any{
+		"type": "tts_ready",
+		"data": map[string]any{"job_id": jobID, "audio_url": audioURL},
+	})
+}
+
+func collectStreamReply(ctx context.Context, llm LLMProvider, transcript, cefrLevel string) (string, error) {
+	replyChan, err := llm.StreamReply(ctx, transcript, cefrLevel)
+	if err != nil {
+		return "", err
+	}
+
+	var builder strings.Builder
+	for chunk := range replyChan {
+		builder.WriteString(chunk)
+	}
+	return builder.String(), nil
+}
+
+func (uc *UseCase) userCEFRLevel(ctx context.Context, userID string) string {
+	if uc.userRepo == nil {
+		return "A1"
+	}
+	user, err := uc.userRepo.GetUserByID(ctx, userID)
+	if err != nil || user == nil || strings.TrimSpace(user.CEFRLevel) == "" {
+		return "A1"
+	}
+	return strings.ToUpper(strings.TrimSpace(user.CEFRLevel))
+}
+
+func fallbackCoachReply() string {
+	return "Nice work. Open the grammar feedback to see what you can improve, then try the sentence again."
+}
+
+func (uc *UseCase) saveChatMessage(ctx context.Context, log *slog.Logger, userID, sessionID string, role chatDomain.Role, content, audioURL string) *chatDomain.Message {
+	sessionID = strings.TrimSpace(sessionID)
+	content = strings.TrimSpace(content)
+	if uc.chatRepo == nil || sessionID == "" || content == "" {
+		return nil
+	}
+
+	session, err := uc.chatRepo.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error("chat session lookup failed for audio message", "error", err, "session_id", sessionID)
+		return nil
+	}
+	if session.UserID != userID {
+		log.Error("audio message session access denied", "session_id", sessionID)
+		return nil
+	}
+
+	msg := &chatDomain.Message{
+		SessionID: sessionID,
+		Role:      role,
+		Content:   content,
+		AudioURL:  strings.TrimSpace(audioURL),
+	}
+	if err := uc.chatRepo.SaveMessage(ctx, msg); err != nil {
+		log.Error("audio chat message save failed", "error", err, "session_id", sessionID, "role", role)
+		return nil
+	}
+	return msg
 }

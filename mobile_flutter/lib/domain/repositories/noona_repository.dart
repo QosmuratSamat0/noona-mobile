@@ -11,12 +11,14 @@ abstract class NoonaRepository {
   void setSessionExpiredHandler(Future<void> Function() handler);
   Future<AuthTokens> login(String email, String password);
   Future<AppUser> me(String token);
+  Future<AppUser> updateCEFRLevel(String userId, String level, String token);
   Future<void> logout(AuthTokens tokens);
   Future<ActivitySummary> activity(String token);
   Future<List<Mistake>> mistakes(String token);
   Future<List<Map<String, dynamic>>> sessions(String token);
   Future<String> createSession(String token);
   Future<List<ChatMessage>> messages(String sessionId, String token);
-  Future<ChatMessage> sendMessage(String sessionId, String content, String token);
-  Future<void> uploadAudio(File file, String token);
+  Future<ChatMessage> sendMessage(
+      String sessionId, String content, String token);
+  Future<void> uploadAudio(File file, String token, {String? sessionId});
 }

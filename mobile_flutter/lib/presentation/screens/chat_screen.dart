@@ -118,13 +118,6 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
       }
-      messages.add(ChatMessage(
-        id: 't-${DateTime.now().millisecondsSinceEpoch}',
-        role: 'coach',
-        text: 'Голосовой ответ готов.',
-        jobId: jobId,
-        audioUrl: audioUrl,
-      ));
     });
     _scrollToBottom();
   }
@@ -154,9 +147,8 @@ class _ChatScreenState extends State<ChatScreen> {
               _addMessage(ChatMessage(
                 id: 'e-${DateTime.now().millisecondsSinceEpoch}',
                 role: 'coach',
-                text: "Я не расслышала четкого предложения.",
-                note:
-                    "Пожалуйста, запишите 2-8 секунд голоса и говорите ближе к микрофону.",
+                text: 'I could not hear a clear sentence.',
+                note: 'Please record 2-8 seconds and speak closer to the mic.',
               ));
               setState(() {
                 status = 'idle';
@@ -173,27 +165,19 @@ class _ChatScreenState extends State<ChatScreen> {
             case 'quick_feedback':
               _attachFeedback(
                   '${data['job_id'] ?? ''}', ChatFeedback.fromQuick(data));
-              _addMessage(ChatMessage(
-                id: 'q-${DateTime.now().millisecondsSinceEpoch}',
-                role: 'coach',
-                text: 'Исправление: ${data['corrected_text'] ?? ''}'.trim(),
-                note: 'Почему: ${data['reason'] ?? ''}'.trim(),
-                jobId: '${data['job_id'] ?? ''}',
-              ));
               break;
             case 'deep_feedback':
               final analysis = data['analysis'] as Map<String, dynamic>? ?? {};
               _attachFeedback('${data['job_id'] ?? ''}',
                   ChatFeedback.fromAnalysis(analysis));
-              final explanation = '${analysis['explanation'] ?? ''}'.trim();
-              if (explanation.isNotEmpty) {
-                _addMessage(ChatMessage(
-                  id: 'd-${DateTime.now().millisecondsSinceEpoch}',
-                  role: 'coach',
-                  text: explanation,
-                  jobId: '${data['job_id'] ?? ''}',
-                ));
-              }
+              break;
+            case 'coach_reply':
+              _addMessage(ChatMessage(
+                id: 'c-${DateTime.now().millisecondsSinceEpoch}',
+                role: 'coach',
+                text: '${data['text'] ?? ''}',
+                jobId: '${data['job_id'] ?? ''}',
+              ));
               break;
             case 'tts_ready':
               _attachAudio(
@@ -204,17 +188,8 @@ class _ChatScreenState extends State<ChatScreen> {
               _addMessage(ChatMessage(
                 id: 'u-${DateTime.now().millisecondsSinceEpoch}',
                 role: 'user',
-                text: '${data['transcript'] ?? 'Аудио загружено'}',
+                text: '${data['transcript'] ?? 'Audio uploaded'}',
                 feedback: ChatFeedback.fromAnalysis(analysis),
-              ));
-              _addMessage(ChatMessage(
-                id: 'c-${DateTime.now().millisecondsSinceEpoch}',
-                role: 'coach',
-                text: 'Хорошая работа. ${analysis['correction'] ?? ''}',
-                note: '${analysis['explanation'] ?? ''}',
-                audioUrl: '${data['audio_url'] ?? ''}'.trim().isEmpty
-                    ? null
-                    : '${data['audio_url']}',
               ));
               setState(() {
                 status = 'idle';
@@ -244,18 +219,33 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = draft.text.trim();
     final id = sessionId;
     if (text.isEmpty || id == null) return;
+    final localId = 'local-${DateTime.now().millisecondsSinceEpoch}';
     setState(() {
       messages.add(ChatMessage(
-          id: 'local-${DateTime.now().millisecondsSinceEpoch}',
-          role: 'user',
-          text: text));
+          id: localId, role: 'user', text: text));
       draft.clear();
     });
     _scrollToBottom();
     try {
       final reply = await widget.repository.sendMessage(id, text, widget.token);
       if (!mounted) return;
-      setState(() => messages.add(reply));
+      setState(() {
+        final feedback = reply.feedback;
+        if (feedback != null) {
+          final index = messages.indexWhere((message) => message.id == localId);
+          if (index != -1) {
+            messages[index] = messages[index].copyWith(feedback: feedback);
+          }
+        }
+        messages.add(ChatMessage(
+          id: reply.id,
+          role: reply.role,
+          text: reply.text,
+          note: reply.note,
+          jobId: reply.jobId,
+          audioUrl: reply.audioUrl,
+        ));
+      });
       _scrollToBottom();
     } catch (_) {
       if (mounted) setState(() => messages.removeLast());
@@ -284,7 +274,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (path == null) return;
     setState(() => status = 'uploading');
     try {
-      await widget.repository.uploadAudio(File(path), widget.token);
+      await widget.repository.uploadAudio(
+        File(path),
+        widget.token,
+        sessionId: sessionId,
+      );
       if (mounted) setState(() => status = 'processing');
     } catch (error) {
       if (!mounted) return;
@@ -315,7 +309,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.18),
+                      color: Colors.white.withValues(alpha: 0.18),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.psychology_outlined,
@@ -333,7 +327,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500)),
                         SizedBox(height: 2),
-                        Text('Разговорная практика',
+                        Text('Speaking practice',
                             style: TextStyle(
                                 color: Colors.white70,
                                 fontSize: 11,
@@ -345,7 +339,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
+                      color: Colors.white.withValues(alpha: 0.16),
                       borderRadius: BorderRadius.circular(99),
                     ),
                     child: const Row(
@@ -354,7 +348,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         Icon(Icons.local_fire_department,
                             color: Colors.white, size: 15),
                         SizedBox(width: 4),
-                        Text('7 дней',
+                        Text('7 days',
                             style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -383,45 +377,51 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : 20,
+                    bottom:
+                        MediaQuery.of(context).viewInsets.bottom > 0 ? 12 : 20,
                   ),
                   child: SafeArea(
                     top: false,
                     child: Row(
                       children: [
-                        // микрофон — назад к голосовому режиму
+                        // Microphone: switch back to voice mode.
                         GestureDetector(
                           onTap: () => setState(() => isTextMode = false),
                           child: const SizedBox(
                             width: 44,
                             height: 44,
-                            child: Icon(Icons.mic, color: Color(0xFF3B5BDB), size: 22),
+                            child: Icon(Icons.mic,
+                                color: Color(0xFF3B5BDB), size: 22),
                           ),
                         ),
-                        // текстовое поле — растягивается до края
+                        // Text input expands to the remaining width.
                         Expanded(
                           child: TextField(
                             controller: draft,
                             onSubmitted: (_) => _send(),
                             decoration: InputDecoration(
-                              hintText: 'Написать сообщение...',
-                              hintStyle: TextStyle(color: Colors.grey[300], fontSize: 14),
+                              hintText: 'Type a message...',
+                              hintStyle: TextStyle(
+                                  color: Colors.grey[300], fontSize: 14),
                               border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 8),
                             ),
-                            style: const TextStyle(fontSize: 14, color: Colors.black87),
+                            style: const TextStyle(
+                                fontSize: 14, color: Colors.black87),
                             textInputAction: TextInputAction.send,
                             keyboardType: TextInputType.text,
                             maxLines: 1,
                           ),
                         ),
-                        // отправить
+                        // Send.
                         GestureDetector(
                           onTap: _send,
                           child: const SizedBox(
                             width: 44,
                             height: 44,
-                            child: Icon(Icons.send_rounded, color: Color(0xFF3B5BDB), size: 22),
+                            child: Icon(Icons.send_rounded,
+                                color: Color(0xFF3B5BDB), size: 22),
                           ),
                         ),
                       ],
@@ -438,10 +438,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       children: [
                         Text(
                           status == 'recording'
-                              ? 'Нажми стоп для отправки'
+                              ? 'Tap stop to send'
                               : status == 'idle'
-                                  ? 'Нажми и говори'
-                                  : 'Ожидание ответа...',
+                                  ? 'Tap and speak'
+                                  : 'Waiting for a reply...',
                           style: const TextStyle(
                               color: Colors.grey,
                               fontSize: 11,
@@ -451,10 +451,12 @@ class _ChatScreenState extends State<ChatScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const SizedBox(width: 56), // spacer to center the mic
+                            const SizedBox(
+                                width: 56), // spacer to center the mic
                             const Spacer(),
                             GestureDetector(
-                              onTap: status == 'uploading' || status == 'processing'
+                              onTap: status == 'uploading' ||
+                                      status == 'processing'
                                   ? null
                                   : _toggleRecord,
                               child: Container(
@@ -465,30 +467,35 @@ class _ChatScreenState extends State<ChatScreen> {
                                   shape: BoxShape.circle,
                                   boxShadow: [
                                     BoxShadow(
-                                        color: const Color(0xFFE03131).withOpacity(0.35),
+                                        color: const Color(0xFFE03131)
+                                            .withValues(alpha: 0.35),
                                         blurRadius: 8,
                                         offset: const Offset(0, 2))
                                   ],
                                 ),
                                 child: Icon(
-                                  status == 'recording' ? Icons.stop : Icons.mic,
+                                  status == 'recording'
+                                      ? Icons.stop
+                                      : Icons.mic,
                                   color: Colors.white,
                                   size: 26,
                                 ),
                               ),
                             ),
                             const Spacer(),
-                            // переключить на текстовый ввод
+                            // Switch to text input.
                             GestureDetector(
                               onTap: () => setState(() => isTextMode = true),
                               child: Container(
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF3B5BDB).withOpacity(0.12),
+                                  color: const Color(0xFF3B5BDB)
+                                      .withValues(alpha: 0.12),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(Icons.keyboard_alt_outlined, color: Color(0xFF3B5BDB), size: 22),
+                                child: const Icon(Icons.keyboard_alt_outlined,
+                                    color: Color(0xFF3B5BDB), size: 22),
                               ),
                             ),
                             const SizedBox(width: 12),

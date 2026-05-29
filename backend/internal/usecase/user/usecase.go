@@ -143,6 +143,13 @@ func (uc *UseCase) UpdateUser(
 	if authDomain.HasPermission(requester.Role, authDomain.AdminPermission) && input.Role != "" && model.IsValidRole(input.Role) {
 		existing.Role = input.Role
 	}
+	if input.CEFRLevel != "" {
+		level := strings.ToUpper(strings.TrimSpace(input.CEFRLevel))
+		if !isValidCEFRLevel(level) {
+			return errs.ErrInvalidInput
+		}
+		existing.CEFRLevel = level
+	}
 
 	return uc.userRepo.UpdateUser(ctx, existing)
 }
@@ -228,4 +235,13 @@ func (uc *UseCase) ChangeRole(
 func isValidEmail(email string) bool {
 	_, err := mail.ParseAddress(email)
 	return err == nil
+}
+
+func isValidCEFRLevel(level string) bool {
+	switch level {
+	case "A1", "A2", "B1", "B2", "C1", "C2":
+		return true
+	default:
+		return false
+	}
 }

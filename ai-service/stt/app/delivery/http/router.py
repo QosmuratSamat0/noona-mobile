@@ -44,8 +44,6 @@ async def transcribe(
     )
 
     try:
-        # Run in the same thread — faster-whisper releases the GIL during
-        # CTranslate2 inference, so other async tasks can proceed.
         result = service.transcribe(request)
         return result
     except Exception as exc:

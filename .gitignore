@@ -51,3 +51,5 @@ yarn-error.log*
 /stt_tmp/
 .p/
 .main.exe
+
+.gocache/

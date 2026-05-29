@@ -9,6 +9,7 @@ import (
 	linguisticDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	model "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/user"
 	authUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/auth"
+	chatUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/chat"
 	userUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/user"
 )
 
@@ -31,7 +32,7 @@ type ChatUseCase interface {
 	CreateSession(ctx context.Context, userID string) (*chatDomain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*chatDomain.Session, error)
 	SaveMessage(ctx context.Context, userID string, sessionID string, role chatDomain.Role, content string) (*chatDomain.Message, error)
-	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*chatDomain.Message, error)
+	SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*chatUseCase.SendMessageResult, error)
 	GetSessionMessages(ctx context.Context, userID string, sessionID string) ([]*chatDomain.Message, error)
 }
 
@@ -51,5 +52,5 @@ type ActivityUseCase interface {
 }
 
 type AudioUseCase interface {
-	UploadAudio(ctx context.Context, userID string, file io.Reader, fileSize int64, contentType, ext string) (string, error)
+	UploadAudio(ctx context.Context, userID, sessionID string, file io.Reader, fileSize int64, contentType, ext string) (string, error)
 }

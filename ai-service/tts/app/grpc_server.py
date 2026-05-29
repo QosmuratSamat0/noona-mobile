@@ -27,6 +27,9 @@ async def run_grpc_server(
     """
     Create and serve the gRPC server until stop_event is set.
     """
+    if model_handle is None:
+        raise RuntimeError("TTS gRPC server cannot start without a Piper model")
+
     servicer = TTSServicer(
         model_handle=model_handle,
         minio=minio,

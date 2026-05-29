@@ -58,7 +58,7 @@ func (w *AudioWorker) Stop() {
 const (
 	workerMaxBackoff       = 30 * time.Second
 	workerBaseJitter       = time.Second
-	workerMaxRetryExponent = 5 // caps exponential backoff at 2^5 = 32 seconds before the 30s ceiling
+	workerMaxRetryExponent = 5 
 	cleanupMaxRetries      = 3
 	cleanupRetryDelay      = 500 * time.Millisecond
 )

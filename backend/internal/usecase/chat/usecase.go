@@ -8,23 +8,38 @@ import (
 	"time"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/lib/errs"
 )
 
 type UseCase struct {
 	chatRepo   ChatRepo
+	userRepo   UserRepo
 	activityUC ActivityUseCase
+	linguistic LinguisticUseCase
 	llm        LLMProvider
 	tts        TTSService
 }
 
-func NewUseCase(chatRepo ChatRepo, activityUC ActivityUseCase, llm ...LLMProvider) *UseCase {
+type SendMessageResult struct {
+	Reply    *domain.Message
+	Feedback *linguistic.QuickFeedback
+}
+
+func NewUseCase(chatRepo ChatRepo, activityUC ActivityUseCase, args ...any) *UseCase {
 	uc := &UseCase{
 		chatRepo:   chatRepo,
 		activityUC: activityUC,
 	}
-	if len(llm) > 0 {
-		uc.llm = llm[0]
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case LLMProvider:
+			uc.llm = v
+		case UserRepo:
+			uc.userRepo = v
+		case LinguisticUseCase:
+			uc.linguistic = v
+		}
 	}
 	return uc
 }
@@ -76,17 +91,27 @@ func (uc *UseCase) SaveMessage(ctx context.Context, userID string, sessionID str
 	return msg, nil
 }
 
-func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*domain.Message, error) {
-	if _, err := uc.SaveMessage(ctx, userID, sessionID, domain.RoleUser, content); err != nil {
+func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*SendMessageResult, error) {
+	userMessage, err := uc.SaveMessage(ctx, userID, sessionID, domain.RoleUser, content)
+	if err != nil {
 		return nil, err
 	}
 
+	var feedback *linguistic.QuickFeedback
 	reply := uc.fallbackReply(content)
 	if uc.llm != nil {
-		ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
-		defer cancel()
+		feedbackCtx, cancelFeedback := context.WithTimeout(ctx, 6*time.Second)
+		feedbackResult, err := uc.llm.QuickFeedback(feedbackCtx, strings.TrimSpace(content))
+		cancelFeedback()
+		if err != nil {
+			slog.Warn("chat quick grammar failed", "error", err)
+		} else {
+			feedback = feedbackResult
+			uc.saveFeedback(ctx, userID, userMessage, feedback)
+		}
 
-		replyChan, err := uc.llm.StreamReply(ctx, strings.TrimSpace(content))
+		replyCtx, cancelReply := context.WithTimeout(ctx, 8*time.Second)
+		replyChan, err := uc.llm.StreamReply(replyCtx, strings.TrimSpace(content), uc.userCEFRLevel(ctx, userID))
 		if err != nil {
 			slog.Warn("chat llm reply failed, using fallback", "error", err)
 		} else {
@@ -98,6 +123,7 @@ func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sess
 				reply = cleanCoachReply(text)
 			}
 		}
+		cancelReply()
 	}
 
 	msg := &domain.Message{
@@ -108,18 +134,33 @@ func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sess
 	if err := uc.chatRepo.SaveMessage(ctx, msg); err != nil {
 		return nil, fmt.Errorf("save ai reply: %w", err)
 	}
-	if uc.tts != nil {
-		ttsCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		audioURL, err := uc.tts.GenerateAudio(ttsCtx, reply)
-		if err != nil {
-			slog.Warn("chat tts failed", "error", err, "session_id", sessionID)
-		} else {
-			msg.AudioURL = audioURL
-		}
-	}
 
-	return msg, nil
+	return &SendMessageResult{Reply: msg, Feedback: feedback}, nil
+}
+
+func (uc *UseCase) saveFeedback(ctx context.Context, userID string, msg *domain.Message, feedback *linguistic.QuickFeedback) {
+	if uc.linguistic == nil || msg == nil || feedback == nil {
+		return
+	}
+	transcript, err := uc.linguistic.SaveTranscript(ctx, msg.ID, msg.Content)
+	if err != nil {
+		slog.Warn("chat grammar transcript save failed", "error", err, "message_id", msg.ID)
+		return
+	}
+	if _, err := uc.linguistic.SaveCorrection(ctx, transcript.ID, feedback.CorrectedText, feedback.Reason, uc.userCEFRLevel(ctx, userID)); err != nil {
+		slog.Warn("chat grammar correction save failed", "error", err, "message_id", msg.ID)
+	}
+}
+
+func (uc *UseCase) userCEFRLevel(ctx context.Context, userID string) string {
+	if uc.userRepo == nil {
+		return "A1"
+	}
+	user, err := uc.userRepo.GetUserByID(ctx, userID)
+	if err != nil || user == nil || strings.TrimSpace(user.CEFRLevel) == "" {
+		return "A1"
+	}
+	return strings.ToUpper(strings.TrimSpace(user.CEFRLevel))
 }
 
 func cleanCoachReply(text string) string {

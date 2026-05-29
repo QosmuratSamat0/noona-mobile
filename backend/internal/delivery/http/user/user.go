@@ -36,9 +36,10 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	CEFRLevel string `json:"cefr_level"`
 }
 
 type UserResponse struct {
@@ -46,6 +47,7 @@ type UserResponse struct {
 	Name      string `json:"name"`
 	Email     string `json:"email"`
 	Role      string `json:"role"`
+	CEFRLevel string `json:"cefr_level"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -97,7 +99,7 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render.JSON(w, r, user)
+	render.JSON(w, r, toUserResponse(user))
 }
 
 // CreateUser godoc
@@ -200,7 +202,7 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render.JSON(w, r, user)
+	render.JSON(w, r, toUserResponse(user))
 }
 
 // GetAllUsers godoc
@@ -245,7 +247,11 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render.JSON(w, r, users)
+	res := make([]UserResponse, 0, len(users))
+	for _, user := range users {
+		res = append(res, toUserResponse(user))
+	}
+	render.JSON(w, r, res)
 }
 
 // UpdateUser godoc
@@ -288,10 +294,11 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		requester,
 		userUseCase.UpdateUserInput{
-			ID:    id,
-			Name:  req.Name,
-			Email: req.Email,
-			Role:  model.Role(req.Role),
+			ID:        id,
+			Name:      req.Name,
+			Email:     req.Email,
+			Role:      model.Role(req.Role),
+			CEFRLevel: req.CEFRLevel,
 		},
 	)
 
@@ -302,6 +309,18 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render.JSON(w, r, resp.OK())
+}
+
+func toUserResponse(user *model.User) UserResponse {
+	return UserResponse{
+		ID:        user.ID,
+		Name:      user.Username,
+		Email:     user.Email,
+		Role:      string(user.Role),
+		CEFRLevel: user.CEFRLevel,
+		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt: user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
 }
 
 // DeleteUser godoc
