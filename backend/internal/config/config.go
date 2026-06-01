@@ -12,6 +12,7 @@ type Config struct {
 	JWTSecret            string        `env:"JWT_SECRET"`
 	RedisURL             string        `env:"REDIS_URL" envDefault:"localhost:6379"`
 	MinioEndpoint        string        `env:"MINIO_ENDPOINT" envDefault:"localhost:9000"`
+	MinioPublicEndpoint  string        `env:"MINIO_PUBLIC_ENDPOINT"`
 	MinioAccessKeyID     string        `env:"MINIO_ACCESS_KEY_ID" envDefault:"minioadmin"`
 	MinioSecretAccessKey string        `env:"MINIO_SECRET_ACCESS_KEY" envDefault:"minioadmin"`
 	MinioUseSSL          bool          `env:"MINIO_USE_SSL" envDefault:"false"`

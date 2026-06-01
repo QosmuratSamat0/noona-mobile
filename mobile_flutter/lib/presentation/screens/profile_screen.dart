@@ -26,6 +26,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   static const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  static const languages = {'ru': 'Русский', 'kk': 'Қазақша'};
   bool saving = false;
 
   Future<void> _setLevel(String level) async {
@@ -34,6 +35,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final next = await widget.repository
           .updateCEFRLevel(widget.user.id, level, widget.token);
+      widget.onUserChanged(next);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _setLanguage(String language) async {
+    if (saving || language == widget.user.nativeLanguage) return;
+    setState(() => saving = true);
+    try {
+      final next = await widget.repository
+          .updateNativeLanguage(widget.user.id, language, widget.token);
       widget.onUserChanged(next);
     } catch (error) {
       if (mounted) {
@@ -99,6 +117,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onSelected: saving ? null : (_) => _setLevel(level),
                     );
                   }).toList(),
+                ),
+              ),
+              const Divider(),
+              const ListTile(
+                leading: Icon(Icons.translate),
+                title: Text('Translation language'),
+                subtitle: Text('Used when translating coach replies'),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: SegmentedButton<String>(
+                  segments: languages.entries
+                      .map((entry) => ButtonSegment(
+                            value: entry.key,
+                            label: Text(entry.value),
+                          ))
+                      .toList(),
+                  selected: {widget.user.nativeLanguage},
+                  onSelectionChanged:
+                      saving ? null : (value) => _setLanguage(value.first),
                 ),
               ),
               const Divider(),

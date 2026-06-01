@@ -2,16 +2,23 @@ package linguistic
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 )
 
 type UseCase struct {
 	repo LinguisticRepo
+	llm  LLMProvider
 }
 
-func NewUseCase(repo LinguisticRepo) *UseCase {
-	return &UseCase{repo: repo}
+func NewUseCase(repo LinguisticRepo, llm ...LLMProvider) *UseCase {
+	uc := &UseCase{repo: repo}
+	if len(llm) > 0 {
+		uc.llm = llm[0]
+	}
+	return uc
 }
 
 func (uc *UseCase) SaveTranscript(ctx context.Context, messageID, rawText string) (*domain.Transcript, error) {
@@ -69,4 +76,15 @@ func (uc *UseCase) GetUserMistakes(ctx context.Context, userID string) ([]*domai
 
 func (uc *UseCase) UpdateCEFRLevel(ctx context.Context, userID, level string) error {
 	return uc.repo.UpdateCEFRLevel(ctx, userID, level)
+}
+
+func (uc *UseCase) Translate(ctx context.Context, text, targetLang string) (string, error) {
+	if uc.llm == nil {
+		return "", fmt.Errorf("translation provider is not configured")
+	}
+	targetLang = strings.ToLower(strings.TrimSpace(targetLang))
+	if targetLang != "ru" && targetLang != "kk" {
+		return "", fmt.Errorf("unsupported target language")
+	}
+	return uc.llm.Translate(ctx, strings.TrimSpace(text), targetLang)
 }

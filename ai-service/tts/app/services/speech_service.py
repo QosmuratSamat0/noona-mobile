@@ -70,6 +70,13 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
 
         try:
             loop = asyncio.get_running_loop()
+            url = await loop.run_in_executor(
+                self._executor,
+                self._minio.get_presigned_url,
+                self._settings.minio_bucket,
+                object_name,
+                self._settings.minio_presigned_expiry
+            )
             queue: asyncio.Queue[bytes | Exception | None] = asyncio.Queue()
 
             def producer():
@@ -98,14 +105,6 @@ class TTSServicer(tts_pb2_grpc.TTSServiceServicer):
                 if isinstance(item, Exception):
                     raise item
                 yield tts_pb2.AudioChunk(data=item)
-
-            url = await loop.run_in_executor(
-                self._executor,
-                self._minio.get_presigned_url,
-                self._settings.minio_bucket,
-                object_name,
-                self._settings.minio_presigned_expiry
-            )
 
             yield tts_pb2.AudioChunk(data=b"", file_url=url)
 

@@ -9,6 +9,7 @@ import (
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/cache/jsoncache"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -102,6 +103,20 @@ func (r *PostgresRepo) SaveMessage(ctx context.Context, msg *domain.Message) err
 	}
 
 	r.deleteCache(ctx, sessionMessagesCacheKey(msg.SessionID))
+	return nil
+}
+
+func (r *PostgresRepo) UpdateMessageAudioURL(ctx context.Context, messageID, audioURL string) error {
+	query := `UPDATE messages SET audio_url = NULLIF($2, '') WHERE id = $1 RETURNING session_id`
+	var sessionID string
+	err := r.db.QueryRow(ctx, query, messageID, audioURL).Scan(&sessionID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("update message audio url: message not found")
+		}
+		return fmt.Errorf("update message audio url: %w", err)
+	}
+	r.deleteCache(ctx, sessionMessagesCacheKey(sessionID))
 	return nil
 }
 

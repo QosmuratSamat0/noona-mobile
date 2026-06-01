@@ -150,6 +150,13 @@ func (uc *UseCase) UpdateUser(
 		}
 		existing.CEFRLevel = level
 	}
+	if input.NativeLanguage != "" {
+		lang := strings.ToLower(strings.TrimSpace(input.NativeLanguage))
+		if lang != "ru" && lang != "kk" {
+			return errs.ErrInvalidInput
+		}
+		existing.NativeLanguage = lang
+	}
 
 	return uc.userRepo.UpdateUser(ctx, existing)
 }

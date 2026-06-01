@@ -5,6 +5,7 @@ class AppUser {
     this.name,
     this.role,
     this.cefrLevel = 'A1',
+    this.nativeLanguage = 'ru',
   });
 
   final String id;
@@ -12,14 +13,16 @@ class AppUser {
   final String? name;
   final String? role;
   final String cefrLevel;
+  final String nativeLanguage;
 
-  AppUser copyWith({String? cefrLevel}) {
+  AppUser copyWith({String? cefrLevel, String? nativeLanguage}) {
     return AppUser(
       id: id,
       email: email,
       name: name,
       role: role,
       cefrLevel: cefrLevel ?? this.cefrLevel,
+      nativeLanguage: nativeLanguage ?? this.nativeLanguage,
     );
   }
 
@@ -30,6 +33,7 @@ class AppUser {
       name: json['name'] as String?,
       role: json['role'] as String?,
       cefrLevel: '${json['cefr_level'] ?? 'A1'}',
+      nativeLanguage: '${json['native_language'] ?? 'ru'}',
     );
   }
 }

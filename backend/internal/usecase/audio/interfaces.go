@@ -12,6 +12,7 @@ import (
 
 type StorageRepo interface {
 	UploadFile(ctx context.Context, file io.Reader, fileSize int64, contentType, ext string) (string, error)
+	FileURL(ctx context.Context, filePath string) (string, error)
 	DeleteFile(ctx context.Context, filePath string) error
 }
 
@@ -26,6 +27,7 @@ type ActivityUseCase interface {
 type ChatRepo interface {
 	GetSession(ctx context.Context, sessionID string) (*chatDomain.Session, error)
 	SaveMessage(ctx context.Context, msg *chatDomain.Message) error
+	UpdateMessageAudioURL(ctx context.Context, messageID, audioURL string) error
 }
 
 type UserRepo interface {
@@ -51,6 +53,7 @@ type LLMProvider interface {
 	StreamReply(ctx context.Context, transcript, cefrLevel string) (<-chan string, error)
 	QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error)
 	Analyze(ctx context.Context, transcript string) (*linguistic.AIAnalysis, error)
+	Translate(ctx context.Context, text, targetLang string) (string, error)
 }
 
 type TTSService interface {

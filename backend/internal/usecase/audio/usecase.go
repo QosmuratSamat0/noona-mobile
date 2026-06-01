@@ -174,8 +174,16 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, ses
 	}
 
 	if uc.storage != nil {
-		if _, err := uc.storage.UploadFile(ctx, bytes.NewReader(audioBytes), int64(len(audioBytes)), contentType, ext); err != nil {
+		filePath, err := uc.storage.UploadFile(ctx, bytes.NewReader(audioBytes), int64(len(audioBytes)), contentType, ext)
+		if err != nil {
 			log.Error("background minio upload failed", "error", err)
+		} else {
+			audioURL, err := uc.storage.FileURL(ctx, filePath)
+			if err != nil {
+				log.Error("background audio url failed", "error", err)
+			} else {
+				uc.attachUserAudio(ctx, log, userID, jobID, userMessage, audioURL)
+			}
 		}
 	}
 
@@ -238,9 +246,15 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, ses
 	})
 
 	log.Info("background coach tts started")
-	audioURL, err := uc.tts.GenerateAudio(ctx, reply)
+	_, urlChan, err := uc.tts.StreamSpeech(ctx, reply)
 	if err != nil {
 		log.Error("background coach tts failed", "error", err)
+		uc.saveChatMessage(ctx, log, userID, sessionID, chatDomain.RoleAI, reply, "")
+		return
+	}
+	audioURL := <-urlChan
+	if strings.TrimSpace(audioURL) == "" {
+		log.Error("background coach tts failed", "error", "empty audio url")
 		uc.saveChatMessage(ctx, log, userID, sessionID, chatDomain.RoleAI, reply, "")
 		return
 	}
@@ -249,6 +263,23 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, ses
 
 	_ = uc.ws.PushToUser(ctx, userID, map[string]any{
 		"type": "tts_ready",
+		"data": map[string]any{"job_id": jobID, "audio_url": audioURL},
+	})
+}
+
+func (uc *UseCase) attachUserAudio(ctx context.Context, log *slog.Logger, userID, jobID string, userMessage *chatDomain.Message, audioURL string) {
+	audioURL = strings.TrimSpace(audioURL)
+	if audioURL == "" {
+		return
+	}
+	if uc.chatRepo != nil && userMessage != nil {
+		userMessage.AudioURL = audioURL
+		if err := uc.chatRepo.UpdateMessageAudioURL(ctx, userMessage.ID, audioURL); err != nil {
+			log.Error("user audio url save failed", "error", err)
+		}
+	}
+	_ = uc.ws.PushToUser(ctx, userID, map[string]any{
+		"type": "user_audio_ready",
 		"data": map[string]any{"job_id": jobID, "audio_url": audioURL},
 	})
 }

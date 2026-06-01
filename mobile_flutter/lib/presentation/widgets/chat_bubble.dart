@@ -1,12 +1,12 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:noona_mobile_flutter/core/theme/app_colors.dart';
 import 'package:noona_mobile_flutter/domain/entities/chat_message.dart';
 
 class ChatBubble extends StatefulWidget {
-  const ChatBubble(this.message, {super.key});
+  const ChatBubble(this.message, {this.onTranslate, super.key});
 
   final ChatMessage message;
+  final Future<void> Function(ChatMessage message)? onTranslate;
 
   @override
   State<ChatBubble> createState() => _ChatBubbleState();
@@ -24,11 +24,17 @@ class _ChatBubbleState extends State<ChatBubble> {
     super.dispose();
   }
 
-  Future<void> _playCoachAudio() async {
+  Future<void> _playAudio(String emptyMessage) async {
     final audioUrl = message.audioUrl?.trim();
+    debugPrint('sound button tapped, audioUrl=$audioUrl');
+    if (_isPlaying) {
+      await _player.stop();
+      if (mounted) setState(() => _isPlaying = false);
+      return;
+    }
     if (audioUrl == null || audioUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The audio reply is not ready yet.')),
+        SnackBar(content: Text(emptyMessage)),
       );
       return;
     }
@@ -37,8 +43,10 @@ class _ChatBubbleState extends State<ChatBubble> {
       setState(() => _isPlaying = true);
       await _player.stop();
       await _player.play(UrlSource(audioUrl));
-      await _player.onPlayerComplete.first
-          .timeout(const Duration(minutes: 2), onTimeout: () {});
+      await _player.onPlayerComplete.first.timeout(
+        const Duration(minutes: 2),
+        onTimeout: () => const AudioEvent(eventType: AudioEventType.complete),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -51,7 +59,6 @@ class _ChatBubbleState extends State<ChatBubble> {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
-    final hasNote = message.note != null && message.note!.trim().isNotEmpty;
     final hasFeedback = message.feedback != null;
     final canOpen = isUser ? hasFeedback : false;
 
@@ -68,7 +75,7 @@ class _ChatBubbleState extends State<ChatBubble> {
               onTap: canOpen
                   ? () => _showFeedback(context)
                   : !isUser
-                      ? _playCoachAudio
+                      ? () => _playAudio('The audio reply is not ready yet.')
                       : null,
               child: Container(
                 padding:
@@ -132,14 +139,15 @@ class _ChatBubbleState extends State<ChatBubble> {
                 if (!isUser) ...[
                   _ActionButton(
                     icon: Icons.translate,
-                    onTap: hasNote ? () => _showDetails(context) : () {},
+                    onTap: () => widget.onTranslate?.call(message),
                   ),
                   const SizedBox(width: 8),
                   _ActionButton(
                     icon: _isPlaying
                         ? Icons.stop_rounded
                         : Icons.volume_up_outlined,
-                    onTap: _playCoachAudio,
+                    onTap: () =>
+                        _playAudio('The audio reply is not ready yet.'),
                   ),
                 ],
                 if (isUser && hasFeedback) ...[
@@ -154,12 +162,35 @@ class _ChatBubbleState extends State<ChatBubble> {
                   ),
                   const SizedBox(width: 8),
                   _ActionButton(
-                    icon: Icons.volume_up_outlined,
-                    onTap: () {},
+                    icon: _isPlaying
+                        ? Icons.stop_rounded
+                        : Icons.volume_up_outlined,
+                    onTap: () => _playAudio('Original audio is not ready yet.'),
                   ),
                 ],
               ],
             ),
+            if (!isUser && message.translation?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 6),
+              Container(
+                constraints: BoxConstraints(
+                    maxWidth: MediaQuery.sizeOf(context).width * 0.78),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B5BDB).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  message.translation!,
+                  style: const TextStyle(
+                    color: Color(0xFF334155),
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -177,44 +208,6 @@ class _ChatBubbleState extends State<ChatBubble> {
       backgroundColor: Colors.transparent,
       builder: (context) =>
           _FeedbackSheet(message: message, feedback: feedback),
-    );
-  }
-
-  void _showDetails(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _SheetHandle(),
-                const SizedBox(height: 18),
-                const Text(
-                  'Noona feedback',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.text),
-                ),
-                const SizedBox(height: 14),
-                _DetailBlock(label: 'Correction', text: message.text),
-                const SizedBox(height: 12),
-                _DetailBlock(label: 'Coach note', text: message.note ?? ''),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -299,7 +292,7 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(
-                        score >= 90 ? 'Well done!' : 'Nice work!',
+                        _scoreLabel(score),
                         style: const TextStyle(
                             color: Color(0xFF2F9E44),
                             fontSize: 14,
@@ -348,6 +341,13 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
     return (100 - penalty).round().clamp(40, 99);
   }
 
+  String _scoreLabel(int score) {
+    if (score >= 80) return 'Well done!';
+    if (score >= 60) return 'Good try!';
+    if (score >= 40) return 'Keep practicing!';
+    return 'Try again!';
+  }
+
   int _pronunciationScore(List<ChatMistake> mistakes, String sentence) {
     if (mistakes.isEmpty) return 100;
     final wordCount = _wordCount(sentence);
@@ -368,7 +368,8 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
     final originalWords = _words(original);
     final correctedWords = _words(corrected);
     if (originalWords.isEmpty && correctedWords.isEmpty) return 0;
-    final common = _longestCommonSubsequenceLength(originalWords, correctedWords);
+    final common =
+        _longestCommonSubsequenceLength(originalWords, correctedWords);
     final changed = [originalWords.length, correctedWords.length]
             .reduce((a, b) => a > b ? a : b) -
         common;
@@ -376,7 +377,8 @@ class _FeedbackSheetState extends State<_FeedbackSheet> {
   }
 
   int _longestCommonSubsequenceLength(List<String> a, List<String> b) {
-    final dp = List.generate(a.length + 1, (_) => List<int>.filled(b.length + 1, 0));
+    final dp =
+        List.generate(a.length + 1, (_) => List<int>.filled(b.length + 1, 0));
     for (var i = 1; i <= a.length; i++) {
       for (var j = 1; j <= b.length; j++) {
         if (a[i - 1] == b[j - 1]) {
@@ -679,48 +681,14 @@ class _TableHeader extends StatelessWidget {
 class _TableCell extends StatelessWidget {
   final String text;
   final Color? color;
-  final bool bold;
-  const _TableCell(this.text, {this.color, this.bold = false});
+  const _TableCell(this.text, {this.color});
+
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Text(text,
             style: TextStyle(
-                fontSize: 13,
-                color: color,
-                fontWeight: bold ? FontWeight.w500 : FontWeight.normal)),
-      );
-}
-
-class _AvatarIcon extends StatelessWidget {
-  final IconData icon;
-  final Color bgColor;
-  final Color iconColor;
-  const _AvatarIcon(
-      {required this.icon,
-      required this.bgColor,
-      this.iconColor = const Color(0xFF3B5BDB)});
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
-        child: Icon(icon, size: 16, color: iconColor),
-      );
-}
-
-class _IconBtn extends StatelessWidget {
-  final IconData icon;
-  const _IconBtn({required this.icon});
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: const Color(0xFF3B5BDB).withValues(alpha: 0.12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, size: 15, color: const Color(0xFF3B5BDB)),
+                fontSize: 13, color: color, fontWeight: FontWeight.normal)),
       );
 }
 
@@ -793,45 +761,6 @@ class _InfoLine extends StatelessWidget {
     return Text(text,
         style: const TextStyle(
             fontSize: 14, height: 1.4, fontWeight: FontWeight.w500));
-  }
-}
-
-class _DetailBlock extends StatelessWidget {
-  const _DetailBlock({required this.label, required this.text});
-
-  final String label;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF3B5BDB).withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE9ECEF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 6),
-          Text(
-            text,
-            style: const TextStyle(
-                color: Color(0xFF0F172A),
-                fontSize: 14,
-                height: 1.45,
-                fontWeight: FontWeight.normal),
-          ),
-        ],
-      ),
-    );
   }
 }
 

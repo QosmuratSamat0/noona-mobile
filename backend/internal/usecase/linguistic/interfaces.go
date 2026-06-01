@@ -18,3 +18,7 @@ type LinguisticRepo interface {
 
 	UpdateCEFRLevel(ctx context.Context, userID string, level string) error
 }
+
+type LLMProvider interface {
+	Translate(ctx context.Context, text, targetLang string) (string, error)
+}

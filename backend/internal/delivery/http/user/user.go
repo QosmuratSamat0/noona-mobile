@@ -36,20 +36,22 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	CEFRLevel string `json:"cefr_level"`
+	Name           string `json:"name"`
+	Email          string `json:"email"`
+	Role           string `json:"role"`
+	CEFRLevel      string `json:"cefr_level"`
+	NativeLanguage string `json:"native_language"`
 }
 
 type UserResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	CEFRLevel string `json:"cefr_level"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Email          string `json:"email"`
+	Role           string `json:"role"`
+	CEFRLevel      string `json:"cefr_level"`
+	NativeLanguage string `json:"native_language"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 func NewUserHandler(userUC UserUseCase) *UserHandler {
@@ -294,11 +296,12 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		requester,
 		userUseCase.UpdateUserInput{
-			ID:        id,
-			Name:      req.Name,
-			Email:     req.Email,
-			Role:      model.Role(req.Role),
-			CEFRLevel: req.CEFRLevel,
+			ID:             id,
+			Name:           req.Name,
+			Email:          req.Email,
+			Role:           model.Role(req.Role),
+			CEFRLevel:      req.CEFRLevel,
+			NativeLanguage: req.NativeLanguage,
 		},
 	)
 
@@ -313,13 +316,14 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 func toUserResponse(user *model.User) UserResponse {
 	return UserResponse{
-		ID:        user.ID,
-		Name:      user.Username,
-		Email:     user.Email,
-		Role:      string(user.Role),
-		CEFRLevel: user.CEFRLevel,
-		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt: user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:             user.ID,
+		Name:           user.Username,
+		Email:          user.Email,
+		Role:           string(user.Role),
+		CEFRLevel:      user.CEFRLevel,
+		NativeLanguage: user.NativeLanguage,
+		CreatedAt:      user.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:      user.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 

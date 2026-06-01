@@ -89,6 +89,14 @@ func (p *Provider) StreamReply(ctx context.Context, transcript, cefrLevel string
 	return out, nil
 }
 
+func (p *Provider) Translate(ctx context.Context, text, targetLang string) (string, error) {
+	translated, err := p.complete(ctx, []message{
+		{Role: "system", Content: translationPrompt(targetLang)},
+		{Role: "user", Content: text},
+	}, false)
+	return strings.TrimSpace(translated), err
+}
+
 func coachSystemPrompt(cefrLevel string) string {
 	level := strings.ToUpper(strings.TrimSpace(cefrLevel))
 	if level == "" {
@@ -99,10 +107,22 @@ The learner self-selected CEFR level is %s. Adapt your vocabulary, sentence leng
 Reply in plain text only: no Markdown, no asterisks, no bullet symbols.
 Naturally model correct grammar by rephrasing the learner's idea in fluent English; do not point out mistakes or mention grammar errors.
 Every reply must include one recommendation, fact, tip, or opinion.
-Use at most 3 sentences.
+IMPORTANT RULE:
+- Maximum 2-3 sentences per reply.
+- Each sentence max 20-25 words.
+- Get to the point quickly.
 End with either a question or a suggestion.
 Rotate conversation themes when the user's context allows, using this cycle: everyday life, work, food, travel, movies, music, technology, a random personal anecdote.
 If the user says hello/hey/hi, greet them briefly and start with the next simple themed speaking prompt.`, level)
+}
+
+func translationPrompt(targetLang string) string {
+	langName := "Russian"
+	if strings.ToLower(strings.TrimSpace(targetLang)) == "kk" {
+		langName = "Kazakh"
+	}
+	return fmt.Sprintf(`Translate to %s.
+Return only the translation, no explanations.`, langName)
 }
 
 func (p *Provider) QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error) {
@@ -191,6 +211,14 @@ The JSON schema must be:
   ],
   "suggested": ["string (2-3 follow-up questions or responses)"]
 }
+If the sentence is correct, return:
+{
+  "correction": "",
+  "explanation": "Great sentence! No mistakes found.",
+  "cefr_level": "B1",
+  "mistakes": [],
+  "suggested": []
+}
 Only output valid JSON.`},
 		{Role: "user", Content: transcript},
 	}, true)
@@ -273,7 +301,7 @@ func sanitizeJSON(raw string) string {
 
 func validateAnalysis(a *linguistic.AIAnalysis) {
 	if strings.TrimSpace(a.Correction) == "" {
-		a.Correction = "I couldn't generate a correction, but I'm here to help!"
+		a.Correction = ""
 	}
 
 	validLevels := map[string]bool{"A1": true, "A2": true, "B1": true, "B2": true, "C1": true, "C2": true}

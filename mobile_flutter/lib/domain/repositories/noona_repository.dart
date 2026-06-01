@@ -12,6 +12,8 @@ abstract class NoonaRepository {
   Future<AuthTokens> login(String email, String password);
   Future<AppUser> me(String token);
   Future<AppUser> updateCEFRLevel(String userId, String level, String token);
+  Future<AppUser> updateNativeLanguage(String userId, String language, String token);
+  Future<String> translate(String text, String targetLang, String token);
   Future<void> logout(AuthTokens tokens);
   Future<ActivitySummary> activity(String token);
   Future<List<Mistake>> mistakes(String token);

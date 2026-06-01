@@ -20,6 +20,7 @@ func (m *LinguisticModule) RegisterRoutes(r chi.Router, secret string) {
 		r.Use(middleware.AuthMiddleware(secret))
 
 		r.Get("/mistakes", m.handler.GetUserMistakes)
+		r.Post("/translate", m.handler.Translate)
 		r.Get("/messages/{messageID}/corrections", m.handler.GetCorrectionsByMessage)
 	})
 }

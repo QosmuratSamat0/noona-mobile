@@ -39,7 +39,7 @@ class _MainShellState extends State<MainShell> {
         user: user,
         onPractice: () => setState(() => index = 1),
       ),
-      ChatScreen(repository: widget.repository, token: token),
+      ChatScreen(repository: widget.repository, token: token, user: user),
       StatsScreen(repository: widget.repository, token: token),
       ProfileScreen(
         repository: widget.repository,

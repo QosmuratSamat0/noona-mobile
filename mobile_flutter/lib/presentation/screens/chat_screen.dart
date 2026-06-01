@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:noona_mobile_flutter/domain/entities/app_user.dart';
 import 'package:noona_mobile_flutter/domain/entities/chat_message.dart';
 import 'package:noona_mobile_flutter/domain/repositories/noona_repository.dart';
 import 'package:noona_mobile_flutter/presentation/widgets/chat_bubble.dart';
@@ -12,10 +13,16 @@ import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({required this.repository, required this.token, super.key});
+  const ChatScreen({
+    required this.repository,
+    required this.token,
+    required this.user,
+    super.key,
+  });
 
   final NoonaRepository repository;
   final String token;
+  final AppUser user;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -55,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _scrollToBottom({bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !scrollController.hasClients) return;
-      final target = scrollController.position.maxScrollExtent;
+      final target = scrollController.position.minScrollExtent;
       if (animated) {
         scrollController.animateTo(
           target,
@@ -109,17 +116,33 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _attachAudio(String jobId, String audioUrl) {
+    debugPrint('tts_ready received: jobId=$jobId url=$audioUrl');
     if (audioUrl.trim().isEmpty) return;
     setState(() {
       for (var i = messages.length - 1; i >= 0; i--) {
         final message = messages[i];
-        if (message.role == 'coach' && message.jobId == jobId) {
+        if (message.jobId == jobId) {
           messages[i] = message.copyWith(audioUrl: audioUrl);
           return;
         }
       }
     });
     _scrollToBottom();
+  }
+
+  Future<void> _translateMessage(ChatMessage message) async {
+    final translation = await widget.repository.translate(
+      message.text,
+      widget.user.nativeLanguage,
+      widget.token,
+    );
+    if (!mounted || translation.isEmpty) return;
+    setState(() {
+      final index = messages.indexWhere((item) => item.id == message.id);
+      if (index != -1) {
+        messages[index] = messages[index].copyWith(translation: translation);
+      }
+    });
   }
 
   void _connectWs() {
@@ -183,6 +206,10 @@ class _ChatScreenState extends State<ChatScreen> {
               _attachAudio(
                   '${data['job_id'] ?? ''}', '${data['audio_url'] ?? ''}');
               break;
+            case 'user_audio_ready':
+              _attachAudio(
+                  '${data['job_id'] ?? ''}', '${data['audio_url'] ?? ''}');
+              break;
             case 'audio_processing_result':
               final analysis = data['analysis'] as Map<String, dynamic>? ?? {};
               _addMessage(ChatMessage(
@@ -199,11 +226,21 @@ class _ChatScreenState extends State<ChatScreen> {
         } catch (_) {}
       },
       onError: (_) {
+        if (channel != nextChannel) return;
         if (mounted) setState(() => status = 'idle');
         _scheduleReconnect();
       },
-      onDone: _scheduleReconnect,
+      onDone: () {
+        if (channel == nextChannel) _scheduleReconnect();
+      },
     );
+  }
+
+  void _reconnectWsNow() {
+    final oldChannel = channel;
+    channel = null;
+    oldChannel?.sink.close();
+    _connectWs();
   }
 
   void _scheduleReconnect() {
@@ -221,8 +258,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty || id == null) return;
     final localId = 'local-${DateTime.now().millisecondsSinceEpoch}';
     setState(() {
-      messages.add(ChatMessage(
-          id: localId, role: 'user', text: text));
+      messages.add(ChatMessage(id: localId, role: 'user', text: text));
       draft.clear();
     });
     _scrollToBottom();
@@ -279,7 +315,10 @@ class _ChatScreenState extends State<ChatScreen> {
         widget.token,
         sessionId: sessionId,
       );
-      if (mounted) setState(() => status = 'processing');
+      if (mounted) {
+        _reconnectWsNow();
+        setState(() => status = 'processing');
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => status = 'idle');
@@ -363,9 +402,13 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: ListView.builder(
               controller: scrollController,
+              reverse: true,
               padding: const EdgeInsets.fromLTRB(14, 16, 14, 10),
               itemCount: messages.length,
-              itemBuilder: (context, index) => ChatBubble(messages[index]),
+              itemBuilder: (context, index) => ChatBubble(
+                messages[messages.length - 1 - index],
+                onTranslate: _translateMessage,
+              ),
             ),
           ),
           isTextMode

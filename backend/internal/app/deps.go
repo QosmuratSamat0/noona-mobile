@@ -68,7 +68,14 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	linguisticRepo := linguisticRepo.New(db, redisClient)
 	activityRepo := activityRepo.New(db, redisClient)
 
-	audioStorage := audioMinioRepo.NewStorageRepo(minioClient, "voice-input")
+	audioStorage := audioMinioRepo.NewStorageRepo(
+		minioClient,
+		"voice-input",
+		cfg.MinioPublicEndpoint,
+		cfg.MinioAccessKeyID,
+		cfg.MinioSecretAccessKey,
+		cfg.MinioUseSSL,
+	)
 	audioJob := audioRedisRepo.NewJobRepo(redisClient, cfg.AudioWorkerQueue)
 
 	// UseCases
@@ -147,6 +154,7 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	default:
 		return nil, fmt.Errorf("unknown LLM_PROVIDER %q; use gemini, groq, or openrouter", cfg.LLMProvider)
 	}
+	linguisticUC = linguisticUseCase.NewUseCase(linguisticRepo, llm)
 	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm, userRepo, linguisticUC).WithTTS(tts)
 
 	audioUC := audioUseCase.NewLowLatencyUseCase(

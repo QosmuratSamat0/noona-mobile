@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     use_cuda: bool = Field(default=False)
 
     minio_endpoint: str = Field(default="localhost:9000")
+    minio_public_endpoint: str | None = Field(default=None)
     minio_access_key: str = Field(default="admin")
     minio_secret_key: str = Field(default="password")
     minio_use_ssl: bool = Field(default=False)

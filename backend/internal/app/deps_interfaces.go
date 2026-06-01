@@ -44,6 +44,7 @@ type LinguisticUseCase interface {
 	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*linguisticDomain.MistakeModel, error)
 	GetUserMistakes(ctx context.Context, userID string) ([]*linguisticDomain.MistakeModel, error)
 	UpdateCEFRLevel(ctx context.Context, userID, level string) error
+	Translate(ctx context.Context, text, targetLang string) (string, error)
 }
 
 type ActivityUseCase interface {

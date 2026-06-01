@@ -80,6 +80,25 @@ func (p *GeminiProvider) StreamReply(ctx context.Context, transcript, cefrLevel 
 	return out, nil
 }
 
+func (p *GeminiProvider) Translate(ctx context.Context, text, targetLang string) (string, error) {
+	model := p.getModel()
+	model.SystemInstruction = &genai.Content{
+		Parts: []genai.Part{genai.Text(translationPrompt(targetLang))},
+	}
+	resp, err := model.GenerateContent(ctx, genai.Text(text))
+	if err != nil {
+		return "", p.mapError(err)
+	}
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini translation returned empty response")
+	}
+	textPart, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
+	if !ok {
+		return "", fmt.Errorf("gemini translation returned non-text part")
+	}
+	return strings.TrimSpace(string(textPart)), nil
+}
+
 func coachSystemPrompt(cefrLevel string) string {
 	level := strings.ToUpper(strings.TrimSpace(cefrLevel))
 	if level == "" {
@@ -90,10 +109,22 @@ The learner self-selected CEFR level is %s. Adapt your vocabulary, sentence leng
 Reply in plain text only: no Markdown, no asterisks, no bullet symbols, no emojis.
 Naturally model correct grammar by rephrasing the learner's idea in fluent English; do not point out mistakes or mention grammar errors.
 Every reply must include one recommendation, fact, tip, or opinion.
-Use at most 3 sentences.
+IMPORTANT RULE:
+- Maximum 2-3 sentences per reply.
+- Each sentence max 20-25 words.
+- Get to the point quickly.
 End with either a question or a suggestion.
 Rotate conversation themes when the user's context allows, using this cycle: everyday life, work, food, travel, movies, music, technology, a random personal anecdote.
 If the user says hello/hey/hi, greet them briefly and start with the next simple themed speaking prompt.`, level)
+}
+
+func translationPrompt(targetLang string) string {
+	langName := "Russian"
+	if strings.ToLower(strings.TrimSpace(targetLang)) == "kk" {
+		langName = "Kazakh"
+	}
+	return fmt.Sprintf(`Translate to %s.
+Return only the translation, no explanations.`, langName)
 }
 
 func (p *GeminiProvider) QuickFeedback(ctx context.Context, transcript string) (*linguistic.QuickFeedback, error) {
@@ -215,6 +246,14 @@ The JSON schema must be:
   ],
   "suggested": ["string (2-3 follow-up questions or responses)"]
 }
+If the sentence is correct, return:
+{
+  "correction": "",
+  "explanation": "Great sentence! No mistakes found.",
+  "cefr_level": "B1",
+  "mistakes": [],
+  "suggested": []
+}
 Only output valid JSON.`)},
 	}
 
@@ -275,7 +314,7 @@ func (p *GeminiProvider) sanitizeJSON(raw string) string {
 
 func (p *GeminiProvider) validateAnalysis(a *linguistic.AIAnalysis) {
 	if a.Correction == "" {
-		a.Correction = "I couldn't generate a correction, but I'm here to help!"
+		a.Correction = ""
 	}
 
 	validLevels := map[string]bool{"A1": true, "A2": true, "B1": true, "B2": true, "C1": true, "C2": true}

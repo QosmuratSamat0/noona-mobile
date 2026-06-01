@@ -16,6 +16,8 @@ class BackendNoonaRepository implements NoonaRepository {
   final ApiClient _api;
   final SessionStore _sessionStore;
   Future<void> Function()? _onSessionExpired;
+  Future<AuthTokens?>? _refreshInFlight;
+  AuthTokens? _latestTokens;
 
   @override
   void setSessionExpiredHandler(Future<void> Function() handler) {
@@ -23,19 +25,22 @@ class BackendNoonaRepository implements NoonaRepository {
   }
 
   @override
-  Uri wsUri(String token) => _api.wsUri(token);
+  Uri wsUri(String token) => _api.wsUri(_latestTokens?.accessToken ?? token);
 
   @override
   Future<AuthTokens> login(String email, String password) async {
     final json =
         await _api.post('/auth/login', {'email': email, 'password': password});
-    return AuthTokens.fromJson(json);
+    final tokens = AuthTokens.fromJson(json);
+    _latestTokens = tokens;
+    return tokens;
   }
 
   @override
   Future<AppUser> me(String token) async {
     final json =
         await _authorizedGet('/users/me', token) as Map<String, dynamic>;
+    _latestTokens ??= await _sessionStore.load();
     return AppUser.fromJson(json);
   }
 
@@ -44,6 +49,24 @@ class BackendNoonaRepository implements NoonaRepository {
       String userId, String level, String token) async {
     await _authorizedPut('/users/$userId', {'cefr_level': level}, token);
     return me(token);
+  }
+
+  @override
+  Future<AppUser> updateNativeLanguage(
+      String userId, String language, String token) async {
+    await _authorizedPut(
+        '/users/$userId', {'native_language': language}, token);
+    return me(token);
+  }
+
+  @override
+  Future<String> translate(String text, String targetLang, String token) async {
+    final json = await _authorizedPost(
+      '/linguistic/translate',
+      {'text': text, 'target_lang': targetLang},
+      token,
+    );
+    return '${json['translation'] ?? ''}'.trim();
   }
 
   @override
@@ -153,19 +176,46 @@ class BackendNoonaRepository implements NoonaRepository {
   }
 
   Future<AuthTokens?> _refreshOrExpire() async {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+
+    final future = _refreshOrExpireLocked();
+    _refreshInFlight = future;
+    try {
+      return await future;
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<AuthTokens?> _refreshOrExpireLocked() async {
     final current = await _sessionStore.load();
     if (current == null) return null;
     try {
-      final json = await _api
-          .post('/auth/refresh', {'refresh_token': current.refreshToken});
+      final response = await _api.rawPost(
+        '/auth/refresh',
+        {'refresh_token': current.refreshToken},
+      );
+      if (response.statusCode == 401) {
+        await _expireSession();
+        return null;
+      }
+      final json =
+          _api.decode(response, '/auth/refresh') as Map<String, dynamic>;
       final refreshed = AuthTokens.fromJson(json);
       await _sessionStore.save(refreshed);
+      _latestTokens = refreshed;
       return refreshed;
     } catch (_) {
-      await _sessionStore.clear();
-      await _onSessionExpired?.call();
+      await _expireSession();
       return null;
     }
+  }
+
+  Future<void> _expireSession() async {
+    await _sessionStore.clear();
+    _latestTokens = null;
+    await _onSessionExpired?.call();
   }
 
   dynamic _decode(http.Response response, String path) {

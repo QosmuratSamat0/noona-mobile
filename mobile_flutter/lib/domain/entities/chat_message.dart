@@ -73,6 +73,7 @@ class ChatMessage {
     this.jobId,
     this.feedback,
     this.audioUrl,
+    this.translation,
   });
 
   final String id;
@@ -82,6 +83,7 @@ class ChatMessage {
   final String? jobId;
   final ChatFeedback? feedback;
   final String? audioUrl;
+  final String? translation;
 
   ChatMessage copyWith({
     String? id,
@@ -91,6 +93,7 @@ class ChatMessage {
     String? jobId,
     ChatFeedback? feedback,
     String? audioUrl,
+    String? translation,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -100,6 +103,7 @@ class ChatMessage {
       jobId: jobId ?? this.jobId,
       feedback: feedback ?? this.feedback,
       audioUrl: audioUrl ?? this.audioUrl,
+      translation: translation ?? this.translation,
     );
   }
 

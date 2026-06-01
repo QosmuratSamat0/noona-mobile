@@ -22,9 +22,16 @@ class MinioAdapter:
         access_key: str,
         secret_key: str,
         use_ssl: bool = False,
+        public_endpoint: str | None = None,
     ) -> None:
         self._client = Minio(
             endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=use_ssl,
+        )
+        self._public_client = Minio(
+            public_endpoint or endpoint,
             access_key=access_key,
             secret_key=secret_key,
             secure=use_ssl,
@@ -81,9 +88,11 @@ class MinioAdapter:
     ) -> str:
         """Generate a temporary public URL for an object."""
         try:
-            return self._client.presigned_get_object(
+            url = self._public_client.presigned_get_object(
                 bucket_name, object_name, expires=timedelta(seconds=expires_sec)
             )
+            logger.info(f"Generated presigned URL: {url}")
+            return url
         except S3Error as exc:
             logger.error(f"Failed to generate presigned URL: {exc}")
             raise

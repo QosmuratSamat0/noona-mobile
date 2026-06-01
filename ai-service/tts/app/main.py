@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
         use_ssl=settings.minio_use_ssl,
+        public_endpoint=settings.minio_public_endpoint,
     )
 
     grpc_stop = asyncio.Event()

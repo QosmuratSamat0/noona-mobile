@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -21,6 +22,7 @@ type LinguisticUseCase interface {
 	GetCorrections(ctx context.Context, transcriptID string) ([]*domain.Correction, error)
 	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*domain.MistakeModel, error)
 	GetUserMistakes(ctx context.Context, userID string) ([]*domain.MistakeModel, error)
+	Translate(ctx context.Context, text, targetLang string) (string, error)
 }
 
 type LinguisticHandler struct {
@@ -47,6 +49,38 @@ type CorrectionResponse struct {
 	CorrectedText string `json:"corrected_text"`
 	Explanation   string `json:"explanation"`
 	CEFRLevel     string `json:"cefr_level"`
+}
+
+type TranslateRequest struct {
+	Text       string `json:"text"`
+	TargetLang string `json:"target_lang"`
+}
+
+type TranslateResponse struct {
+	Translation string `json:"translation"`
+}
+
+func (h *LinguisticHandler) Translate(w http.ResponseWriter, r *http.Request) {
+	if _, ok := middleware.GetUserFromContext(r.Context()); !ok {
+		render.Status(r, http.StatusUnauthorized)
+		render.JSON(w, r, resp.Error("unauthorized"))
+		return
+	}
+
+	var req TranslateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, resp.Error("invalid request"))
+		return
+	}
+
+	translation, err := h.uc.Translate(r.Context(), req.Text, req.TargetLang)
+	if err != nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, resp.Error(err.Error()))
+		return
+	}
+	render.JSON(w, r, TranslateResponse{Translation: translation})
 }
 
 // GetUserMistakes godoc

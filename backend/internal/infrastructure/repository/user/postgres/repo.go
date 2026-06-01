@@ -56,7 +56,7 @@ func (r *PostgresRepo) GetAllUsers(ctx context.Context) ([]*domain.User, error) 
 	}
 
 	const query = `
-		SELECT u.id, u.name, u.email, u.role, COALESCE(p.cefr_level, 'A1'), u.created_at, u.updated_at
+		SELECT u.id, u.name, u.email, u.role, COALESCE(p.cefr_level, 'A1'), COALESCE(p.native_language, 'ru'), u.created_at, u.updated_at
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		ORDER BY created_at DESC
@@ -78,6 +78,7 @@ func (r *PostgresRepo) GetAllUsers(ctx context.Context) ([]*domain.User, error) 
 			&u.Email,
 			&u.Role,
 			&u.CEFRLevel,
+			&u.NativeLanguage,
 			&u.CreatedAt,
 			&u.UpdatedAt,
 		)
@@ -103,14 +104,14 @@ func (repo *PostgresRepo) GetUserByID(ctx context.Context, id string) (*domain.U
 	}
 
 	query := `
-		SELECT u.id, u.name, u.email, u.password_hash, u.role, COALESCE(p.cefr_level, 'A1'), u.created_at, u.updated_at
+		SELECT u.id, u.name, u.email, u.password_hash, u.role, COALESCE(p.cefr_level, 'A1'), COALESCE(p.native_language, 'ru'), u.created_at, u.updated_at
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.id = $1
 	`
 	u := &domain.User{}
 
-	err := repo.db.QueryRow(ctx, query, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CEFRLevel, &u.CreatedAt, &u.UpdatedAt)
+	err := repo.db.QueryRow(ctx, query, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CEFRLevel, &u.NativeLanguage, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -130,14 +131,14 @@ func (repo *PostgresRepo) GetUserByEmail(ctx context.Context, email string) (*do
 	}
 
 	query := `
-		SELECT u.id, u.name, u.email, u.password_hash, u.role, COALESCE(p.cefr_level, 'A1'), u.created_at, u.updated_at
+		SELECT u.id, u.name, u.email, u.password_hash, u.role, COALESCE(p.cefr_level, 'A1'), COALESCE(p.native_language, 'ru'), u.created_at, u.updated_at
 		FROM users u
 		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE u.email = $1
 	`
 
 	u := &domain.User{}
-	err := repo.db.QueryRow(ctx, query, email).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CEFRLevel, &u.CreatedAt, &u.UpdatedAt)
+	err := repo.db.QueryRow(ctx, query, email).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CEFRLevel, &u.NativeLanguage, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -167,13 +168,16 @@ func (repo *PostgresRepo) UpdateUser(ctx context.Context, user *domain.User) err
 		return fmt.Errorf("update user: %w", err)
 	}
 
-	if user.CEFRLevel != "" {
+	if user.CEFRLevel != "" || user.NativeLanguage != "" {
 		_, err = tx.Exec(
 			ctx,
-			`INSERT INTO profiles (user_id, cefr_level) VALUES ($1, $2)
-			 ON CONFLICT (user_id) DO UPDATE SET cefr_level = EXCLUDED.cefr_level`,
+			`INSERT INTO profiles (user_id, cefr_level, native_language) VALUES ($1, NULLIF($2, ''), COALESCE(NULLIF($3, ''), 'ru'))
+			 ON CONFLICT (user_id) DO UPDATE SET
+			 cefr_level = COALESCE(EXCLUDED.cefr_level, profiles.cefr_level),
+			 native_language = COALESCE(NULLIF(EXCLUDED.native_language, ''), profiles.native_language)`,
 			user.ID,
 			user.CEFRLevel,
+			user.NativeLanguage,
 		)
 		if err != nil {
 			return fmt.Errorf("update user profile: %w", err)
