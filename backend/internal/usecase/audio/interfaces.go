@@ -34,16 +34,6 @@ type UserRepo interface {
 	GetUserByID(ctx context.Context, id string) (*userDomain.User, error)
 }
 
-type LinguisticUseCase interface {
-	SaveTranscript(ctx context.Context, messageID, rawText string) (*linguistic.Transcript, error)
-	GetTranscript(ctx context.Context, userID, messageID string) (*linguistic.Transcript, error)
-	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*linguistic.Correction, error)
-	GetCorrections(ctx context.Context, transcriptID string) ([]*linguistic.Correction, error)
-	SaveMistake(ctx context.Context, userID, mistakeType, original, corrected string, offset int) (*linguistic.MistakeModel, error)
-	GetUserMistakes(ctx context.Context, userID string) ([]*linguistic.MistakeModel, error)
-	UpdateCEFRLevel(ctx context.Context, userID, level string) error
-}
-
 type STTService interface {
 	Transcribe(ctx context.Context, audioPath string) (string, error)
 	TranscribeReader(ctx context.Context, audio io.Reader, language string) (string, error)

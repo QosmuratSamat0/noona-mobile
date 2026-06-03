@@ -2,12 +2,10 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
 	domain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/chat"
-	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/cache/jsoncache"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,17 +30,53 @@ func New(db *pgxpool.Pool, cache ...*redis.Client) *PostgresRepo {
 }
 
 func (r *PostgresRepo) CreateSession(ctx context.Context, userID string) (*domain.Session, error) {
-	query := `INSERT INTO sessions (user_id) VALUES ($1) RETURNING id, user_id, created_at`
+	session, _, err := r.GetOrCreateDailySession(ctx, userID)
+	return session, err
+}
+
+func (r *PostgresRepo) GetOrCreateDailySession(ctx context.Context, userID string) (*domain.Session, bool, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, false, fmt.Errorf("begin daily session tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, "daily_session:"+userID); err != nil {
+		return nil, false, fmt.Errorf("lock daily session: %w", err)
+	}
 
 	s := &domain.Session{}
-	err := r.db.QueryRow(ctx, query, userID).Scan(&s.ID, &s.UserID, &s.CreatedAt)
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, created_at
+		FROM sessions
+		WHERE user_id = $1
+		  AND created_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+		  AND created_at < ((date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC')
+		ORDER BY created_at DESC
+		LIMIT 1`, userID).Scan(&s.ID, &s.UserID, &s.CreatedAt)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, fmt.Errorf("commit daily session tx: %w", err)
+		}
+		r.setCache(ctx, sessionCacheKey(s.ID), s)
+		return s, false, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, false, fmt.Errorf("get daily session: %w", err)
+	}
+
+	err = tx.QueryRow(ctx, `INSERT INTO sessions (user_id) VALUES ($1) RETURNING id, user_id, created_at`, userID).
+		Scan(&s.ID, &s.UserID, &s.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("create session: %w", err)
+		return nil, false, fmt.Errorf("create daily session: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("commit daily session tx: %w", err)
 	}
 
 	r.setCache(ctx, sessionCacheKey(s.ID), s)
 	r.deleteCache(ctx, userSessionsCacheKey(userID))
-	return s, nil
+	return s, true, nil
 }
 
 func (r *PostgresRepo) GetSession(ctx context.Context, sessionID string) (*domain.Session, error) {
@@ -133,25 +167,8 @@ func (r *PostgresRepo) GetSessionMessages(ctx context.Context, sessionID string)
 			m.role,
 			m.content,
 			COALESCE(m.audio_url, ''),
-			m.created_at,
-			COALESCE(t.raw_text, ''),
-			COALESCE(c.corrected_text, ''),
-			COALESCE(c.explanation, '')
+			m.created_at
 		FROM messages m
-		LEFT JOIN LATERAL (
-			SELECT id, raw_text
-			FROM transcripts
-			WHERE message_id = m.id
-			ORDER BY id DESC
-			LIMIT 1
-		) t ON true
-		LEFT JOIN LATERAL (
-			SELECT corrected_text, explanation
-			FROM corrections
-			WHERE transcript_id = t.id
-			ORDER BY id DESC
-			LIMIT 1
-		) c ON true
 		WHERE m.session_id = $1
 		ORDER BY m.created_at ASC`
 
@@ -164,16 +181,8 @@ func (r *PostgresRepo) GetSessionMessages(ctx context.Context, sessionID string)
 	var messages []*domain.Message
 	for rows.Next() {
 		m := &domain.Message{}
-		var original, corrected, reason sql.NullString
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &m.AudioURL, &m.CreatedAt, &original, &corrected, &reason); err != nil {
+		if err := rows.Scan(&m.ID, &m.SessionID, &m.Role, &m.Content, &m.AudioURL, &m.CreatedAt); err != nil {
 			return nil, err
-		}
-		if corrected.String != "" || reason.String != "" {
-			m.Feedback = &linguistic.QuickFeedback{
-				Original:      original.String,
-				CorrectedText: corrected.String,
-				Reason:        reason.String,
-			}
 		}
 		messages = append(messages, m)
 	}

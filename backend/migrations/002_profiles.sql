@@ -3,7 +3,8 @@
 CREATE TABLE profiles (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     cefr_level TEXT DEFAULT 'A1',
-    streak_count INT DEFAULT 0
+    streak_count INT DEFAULT 0,
+    native_language TEXT NOT NULL DEFAULT 'ru'
 );
 -- +goose StatementEnd
 

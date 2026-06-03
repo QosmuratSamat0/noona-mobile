@@ -11,20 +11,18 @@ import (
 )
 
 type AudioProcessor struct {
-	stt        STTService
-	llm        LLMProvider
-	tts        TTSService
-	ws         WSPusher
-	linguistic LinguisticUseCase
+	stt STTService
+	llm LLMProvider
+	tts TTSService
+	ws  WSPusher
 }
 
-func NewAudioProcessor(stt STTService, llm LLMProvider, tts TTSService, ws WSPusher, linguistic LinguisticUseCase) *AudioProcessor {
+func NewAudioProcessor(stt STTService, llm LLMProvider, tts TTSService, ws WSPusher) *AudioProcessor {
 	return &AudioProcessor{
-		stt:        stt,
-		llm:        llm,
-		tts:        tts,
-		ws:         ws,
-		linguistic: linguistic,
+		stt: stt,
+		llm: llm,
+		tts: tts,
+		ws:  ws,
 	}
 }
 
@@ -62,7 +60,7 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 		return nil
 	})
 
-	// Task B: Deep Semantic Analysis & Database Persistence
+	// Task B: Deep semantic analysis for websocket feedback.
 	g.Go(func() error {
 		var err error
 		analysis, err = p.llm.Analyze(gCtx, transcript)
@@ -71,29 +69,6 @@ func (p *AudioProcessor) ProcessJob(ctx context.Context, job audio.Job) error {
 			analysis = &linguistic.AIAnalysis{
 				Correction: transcript,
 				CEFRLevel:  "Unknown",
-			}
-			// We continue to save the transcript at least
-		}
-
-		// Audio uploads are not tied to a chat message, so message_id stays NULL.
-		// 1. Save transcript
-		t, err := p.linguistic.SaveTranscript(gCtx, "", transcript)
-		if err != nil {
-			slog.Warn("failed to save transcript", "error", err)
-			return nil // non-critical
-		}
-
-		// 2. Save correction
-		_, err = p.linguistic.SaveCorrection(gCtx, t.ID, analysis.Correction, analysis.Explanation, analysis.CEFRLevel)
-		if err != nil {
-			slog.Warn("failed to save correction", "error", err)
-		}
-
-		// 3. Save mistakes
-		for _, m := range analysis.Mistakes {
-			_, err = p.linguistic.SaveMistake(gCtx, job.UserID, m.Type, m.Original, m.Corrected, m.Offset)
-			if err != nil {
-				slog.Warn("failed to save mistake", "error", err)
 			}
 		}
 

@@ -9,7 +9,7 @@ import (
 )
 
 type ChatRepo interface {
-	CreateSession(ctx context.Context, userID string) (*domain.Session, error)
+	GetOrCreateDailySession(ctx context.Context, userID string) (*domain.Session, bool, error)
 	GetSession(ctx context.Context, sessionID string) (*domain.Session, error)
 	GetUserSessions(ctx context.Context, userID string) ([]*domain.Session, error)
 	SaveMessage(ctx context.Context, msg *domain.Message) error
@@ -18,11 +18,6 @@ type ChatRepo interface {
 
 type ActivityUseCase interface {
 	RecordActivity(ctx context.Context, userID string) error
-}
-
-type LinguisticUseCase interface {
-	SaveTranscript(ctx context.Context, messageID, rawText string) (*linguistic.Transcript, error)
-	SaveCorrection(ctx context.Context, transcriptID, correctedText, explanation, cefrLevel string) (*linguistic.Correction, error)
 }
 
 type UserRepo interface {

@@ -16,7 +16,6 @@ type UseCase struct {
 	chatRepo   ChatRepo
 	userRepo   UserRepo
 	activityUC ActivityUseCase
-	linguistic LinguisticUseCase
 	llm        LLMProvider
 	tts        TTSService
 }
@@ -37,8 +36,6 @@ func NewUseCase(chatRepo ChatRepo, activityUC ActivityUseCase, args ...any) *Use
 			uc.llm = v
 		case UserRepo:
 			uc.userRepo = v
-		case LinguisticUseCase:
-			uc.linguistic = v
 		}
 	}
 	return uc
@@ -50,14 +47,19 @@ func (uc *UseCase) WithTTS(tts TTSService) *UseCase {
 }
 
 func (uc *UseCase) CreateSession(ctx context.Context, userID string) (*domain.Session, error) {
-	session, err := uc.chatRepo.CreateSession(ctx, userID)
+	session, created, err := uc.chatRepo.GetOrCreateDailySession(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Record activity
-	if err := uc.activityUC.RecordActivity(ctx, userID); err != nil {
-		slog.Error("failed to record activity on session creation", "error", err, "user_id", userID)
+	if created {
+		if uc.activityUC == nil {
+			slog.Error("failed to record activity on session creation", "error", "activity usecase is nil", "user_id", userID)
+			return session, nil
+		}
+		if err := uc.activityUC.RecordActivity(ctx, userID); err != nil {
+			slog.Error("failed to record activity on session creation", "error", err, "user_id", userID)
+		}
 	}
 
 	return session, nil
@@ -92,7 +94,7 @@ func (uc *UseCase) SaveMessage(ctx context.Context, userID string, sessionID str
 }
 
 func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sessionID string, content string) (*SendMessageResult, error) {
-	userMessage, err := uc.SaveMessage(ctx, userID, sessionID, domain.RoleUser, content)
+	_, err := uc.SaveMessage(ctx, userID, sessionID, domain.RoleUser, content)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +109,6 @@ func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sess
 			slog.Warn("chat quick grammar failed", "error", err)
 		} else {
 			feedback = feedbackResult
-			uc.saveFeedback(ctx, userID, userMessage, feedback)
 		}
 
 		replyCtx, cancelReply := context.WithTimeout(ctx, 8*time.Second)
@@ -136,20 +137,6 @@ func (uc *UseCase) SendMessageWithReply(ctx context.Context, userID string, sess
 	}
 
 	return &SendMessageResult{Reply: msg, Feedback: feedback}, nil
-}
-
-func (uc *UseCase) saveFeedback(ctx context.Context, userID string, msg *domain.Message, feedback *linguistic.QuickFeedback) {
-	if uc.linguistic == nil || msg == nil || feedback == nil {
-		return
-	}
-	transcript, err := uc.linguistic.SaveTranscript(ctx, msg.ID, msg.Content)
-	if err != nil {
-		slog.Warn("chat grammar transcript save failed", "error", err, "message_id", msg.ID)
-		return
-	}
-	if _, err := uc.linguistic.SaveCorrection(ctx, transcript.ID, feedback.CorrectedText, feedback.Reason, uc.userCEFRLevel(ctx, userID)); err != nil {
-		slog.Warn("chat grammar correction save failed", "error", err, "message_id", msg.ID)
-	}
 }
 
 func (uc *UseCase) userCEFRLevel(ctx context.Context, userID string) string {

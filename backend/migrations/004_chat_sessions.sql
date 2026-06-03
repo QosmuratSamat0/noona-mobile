@@ -11,10 +11,12 @@ CREATE TABLE messages (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL, -- 'user' | 'ai'
     content TEXT NOT NULL,
+    audio_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_user_created_at ON sessions(user_id, created_at DESC);
 CREATE INDEX idx_messages_session_id ON messages(session_id);
 -- +goose StatementEnd
 

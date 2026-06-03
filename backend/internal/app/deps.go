@@ -16,6 +16,7 @@ import (
 	audioModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/audio"
 	authModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/auth"
 	chatModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/chat"
+	learningModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/learning"
 	linguisticModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/linguistic"
 	userModule "github.com/QosmuratSamat0/Noona-AI/backend/internal/delivery/http/user"
 
@@ -30,15 +31,22 @@ import (
 	audioRedisRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/audio/redis"
 	authRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/auth/postgres"
 	chatRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/chat/postgres"
-	linguisticRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/linguistic/postgres"
+	learningRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/learning/postgres"
 	userRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/user/postgres"
 
 	activityUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/activity"
+	analysisUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/analysis"
 	audioUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/audio"
 	authUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/auth"
 	chatUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/chat"
+	dailyUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/daily"
+	drillsUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/drills"
 	linguisticUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/linguistic"
+	mistakeMemoryUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/mistake_memory"
+	practiceUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/practice"
+	resultsUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/results"
 	userUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/user"
+	vocabularyUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/vocabulary"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/worker"
 	"github.com/minio/minio-go/v7"
@@ -46,18 +54,24 @@ import (
 )
 
 type Deps struct {
-	Config            *config.Config
-	DB                *pgxpool.Pool
-	UserUseCase       UserUseCase
-	AuthUseCase       AuthUseCase
-	ChatUseCase       ChatUseCase
-	LinguisticUseCase LinguisticUseCase
-	ActivityUseCase   ActivityUseCase
-	AudioUseCase      AudioUseCase
-	AudioWorker       *worker.AudioWorker
-	Hub               *wsHub.Hub
-	Redis             *redis.Client
-	GeminiProvider    *gemini.GeminiProvider
+	Config               *config.Config
+	DB                   *pgxpool.Pool
+	UserUseCase          UserUseCase
+	AuthUseCase          AuthUseCase
+	ChatUseCase          ChatUseCase
+	LinguisticUseCase    LinguisticUseCase
+	ActivityUseCase      ActivityUseCase
+	AudioUseCase         AudioUseCase
+	PracticeUseCase      PracticeUseCase
+	ResultsUseCase       ResultsUseCase
+	DailyUseCase         DailyUseCase
+	MistakeMemoryUseCase MistakeMemoryUseCase
+	VocabularyUseCase    VocabularyUseCase
+	AnalysisUseCase      AnalysisUseCase
+	AudioWorker          *worker.AudioWorker
+	Hub                  *wsHub.Hub
+	Redis                *redis.Client
+	GeminiProvider       *gemini.GeminiProvider
 }
 
 func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.Client, hub *wsHub.Hub, cfg *config.Config) (*Deps, error) {
@@ -65,8 +79,8 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	userRepo := userRepo.New(db, redisClient)
 	authRepo := authRepo.New(db)
 	chatRepo := chatRepo.New(db, redisClient)
-	linguisticRepo := linguisticRepo.New(db, redisClient)
 	activityRepo := activityRepo.New(db, redisClient)
+	learningStore := learningRepo.New(db)
 
 	audioStorage := audioMinioRepo.NewStorageRepo(
 		minioClient,
@@ -82,8 +96,8 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	userUC := userUseCase.NewUseCase(userRepo)
 	authUC := authUseCase.NewUseCase(userRepo, authRepo, cfg.JWTSecret)
 	activityUC := activityUseCase.NewUseCase(activityRepo)
-	linguisticUC := linguisticUseCase.NewUseCase(linguisticRepo)
-	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC, userRepo, linguisticUC)
+	linguisticUC := linguisticUseCase.NewUseCase()
+	chatUC := chatUseCase.NewUseCase(chatRepo, activityUC, userRepo)
 
 	// AI infrastructure — gRPC client calls Python faster-whisper service
 	var stt audioUseCase.STTService
@@ -154,8 +168,8 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	default:
 		return nil, fmt.Errorf("unknown LLM_PROVIDER %q; use gemini, groq, or openrouter", cfg.LLMProvider)
 	}
-	linguisticUC = linguisticUseCase.NewUseCase(linguisticRepo, llm)
-	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm, userRepo, linguisticUC).WithTTS(tts)
+	linguisticUC = linguisticUseCase.NewUseCase(llm)
+	chatUC = chatUseCase.NewUseCase(chatRepo, activityUC, llm, userRepo).WithTTS(tts)
 
 	audioUC := audioUseCase.NewLowLatencyUseCase(
 		audioStorage,
@@ -167,11 +181,18 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		llm,
 		tts,
 		hub,
-		linguisticUC,
 	)
 
+	mistakeMemoryUC := mistakeMemoryUseCase.NewService(learningStore)
+	vocabularyUC := vocabularyUseCase.NewService(learningStore)
+	dailyUC := dailyUseCase.NewService(learningStore)
+	drillsUC := drillsUseCase.NewService(learningStore)
+	resultsUC := resultsUseCase.NewService(learningStore, llm, mistakeMemoryUC, drillsUC, vocabularyUC, dailyUC, activityUC)
+	practiceUC := practiceUseCase.NewService(stt, audioStorage, resultsUC)
+	analysisUC := analysisUseCase.NewService(mistakeMemoryUC, vocabularyUC, dailyUC)
+
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
-	processor := audioUseCase.NewAudioProcessor(stt, llm, tts, hub, linguisticUC)
+	processor := audioUseCase.NewAudioProcessor(stt, llm, tts, hub)
 
 	// Worker pool — picks jobs from Redis queue and runs processor.
 	audioWorker := worker.NewAudioWorker(
@@ -182,18 +203,24 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	)
 
 	return &Deps{
-		Config:            cfg,
-		DB:                db,
-		UserUseCase:       userUC,
-		AuthUseCase:       authUC,
-		ChatUseCase:       chatUC,
-		LinguisticUseCase: linguisticUC,
-		ActivityUseCase:   activityUC,
-		AudioUseCase:      audioUC,
-		AudioWorker:       audioWorker,
-		Hub:               hub,
-		Redis:             redisClient,
-		GeminiProvider:    geminiProvider,
+		Config:               cfg,
+		DB:                   db,
+		UserUseCase:          userUC,
+		AuthUseCase:          authUC,
+		ChatUseCase:          chatUC,
+		LinguisticUseCase:    linguisticUC,
+		ActivityUseCase:      activityUC,
+		AudioUseCase:         audioUC,
+		PracticeUseCase:      practiceUC,
+		ResultsUseCase:       resultsUC,
+		DailyUseCase:         dailyUC,
+		MistakeMemoryUseCase: mistakeMemoryUC,
+		VocabularyUseCase:    vocabularyUC,
+		AnalysisUseCase:      analysisUC,
+		AudioWorker:          audioWorker,
+		Hub:                  hub,
+		Redis:                redisClient,
+		GeminiProvider:       geminiProvider,
 	}, nil
 }
 
@@ -203,6 +230,14 @@ func BuildHTTPModules(router chi.Router, deps *Deps) {
 	linguisticMod := linguisticModule.NewLinguisticModule(deps.LinguisticUseCase)
 	activityMod := activityModule.NewActivityModule(deps.ActivityUseCase)
 	audioMod := audioModule.NewAudioModule(deps.AudioUseCase)
+	learningMod := learningModule.NewLearningModule(
+		deps.PracticeUseCase,
+		deps.DailyUseCase,
+		deps.ResultsUseCase,
+		deps.MistakeMemoryUseCase,
+		deps.VocabularyUseCase,
+		deps.AnalysisUseCase,
+	)
 	router.Get("/docs/*", httpSwagger.WrapHandler)
 
 	router.Route("/api/v1", func(r chi.Router) {
@@ -215,6 +250,7 @@ func BuildHTTPModules(router chi.Router, deps *Deps) {
 			linguisticMod.RegisterRoutes(r, deps.Config.JWTSecret)
 			activityMod.RegisterRoutes(r, deps.Config.JWTSecret)
 			audioMod.RegisterRoutes(r, deps.Config.JWTSecret)
+			learningMod.RegisterRoutes(r, deps.Config.JWTSecret)
 		})
 	})
 }

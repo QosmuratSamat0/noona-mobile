@@ -25,7 +25,6 @@ type UseCase struct {
 	llm        LLMProvider
 	tts        TTSService
 	ws         WSPusher
-	linguistic LinguisticUseCase
 }
 
 func NewUseCase(storage StorageRepo, jobRepo JobRepo, activityUC ActivityUseCase) *UseCase {
@@ -46,7 +45,6 @@ func NewLowLatencyUseCase(
 	llm LLMProvider,
 	tts TTSService,
 	ws WSPusher,
-	linguistic LinguisticUseCase,
 ) *UseCase {
 	return &UseCase{
 		storage:    storage,
@@ -58,7 +56,6 @@ func NewLowLatencyUseCase(
 		llm:        llm,
 		tts:        tts,
 		ws:         ws,
-		linguistic: linguistic,
 	}
 }
 
@@ -201,25 +198,7 @@ func (uc *UseCase) processBackgroundPath(ctx context.Context, jobID, userID, ses
 		}
 	}
 
-	if uc.linguistic != nil && analysis != nil {
-		messageID := ""
-		if userMessage != nil {
-			messageID = userMessage.ID
-		}
-		t, err := uc.linguistic.SaveTranscript(ctx, messageID, transcript)
-		if err != nil {
-			log.Error("background transcript save failed", "error", err)
-		} else {
-			if _, err := uc.linguistic.SaveCorrection(ctx, t.ID, analysis.Correction, analysis.Explanation, analysis.CEFRLevel); err != nil {
-				log.Error("background correction save failed", "error", err)
-			}
-			for _, m := range analysis.Mistakes {
-				if _, err := uc.linguistic.SaveMistake(ctx, userID, m.Type, m.Original, m.Corrected, m.Offset); err != nil {
-					log.Error("background mistake save failed", "error", err)
-				}
-			}
-		}
-
+	if analysis != nil {
 		_ = uc.ws.PushToUser(ctx, userID, map[string]any{
 			"type": "deep_feedback",
 			"data": map[string]any{"job_id": jobID, "analysis": analysis},

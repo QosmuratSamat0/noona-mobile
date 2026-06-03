@@ -38,20 +38,20 @@ func (r *PostgresRepo) RecordActivity(ctx context.Context, userID string) error 
 			ON CONFLICT (user_id, date)
 			DO UPDATE SET session_count = daily_stats.session_count + 1
 		)
-		INSERT INTO streaks (user_id, current_streak, longest_streak, last_activity_date)
+		INSERT INTO streaks (user_id, current_streak, longest_streak, last_active_date)
 		VALUES ($1, 1, 1, CURRENT_DATE)
 		ON CONFLICT (user_id) DO UPDATE SET
 			current_streak = CASE
-				WHEN streaks.last_activity_date = CURRENT_DATE THEN streaks.current_streak
-				WHEN streaks.last_activity_date = CURRENT_DATE - 1 THEN streaks.current_streak + 1
+				WHEN streaks.last_active_date = CURRENT_DATE THEN streaks.current_streak
+				WHEN streaks.last_active_date = CURRENT_DATE - 1 THEN streaks.current_streak + 1
 				ELSE 1
 			END,
 			longest_streak = CASE
-				WHEN streaks.last_activity_date = CURRENT_DATE THEN streaks.longest_streak
-				WHEN streaks.last_activity_date = CURRENT_DATE - 1 AND streaks.current_streak + 1 > streaks.longest_streak THEN streaks.current_streak + 1
+				WHEN streaks.last_active_date = CURRENT_DATE THEN streaks.longest_streak
+				WHEN streaks.last_active_date = CURRENT_DATE - 1 AND streaks.current_streak + 1 > streaks.longest_streak THEN streaks.current_streak + 1
 				ELSE streaks.longest_streak
 			END,
-			last_activity_date = CURRENT_DATE
+			last_active_date = CURRENT_DATE
 	`
 	_, err := r.db.Exec(ctx, query, userID)
 	if err != nil {
@@ -96,7 +96,7 @@ func (r *PostgresRepo) GetStreak(ctx context.Context, userID string) (*domain.St
 		return cached, nil
 	}
 
-	query := `SELECT id, user_id, current_streak, longest_streak, last_activity_date FROM streaks WHERE user_id = $1`
+	query := `SELECT id, user_id, current_streak, longest_streak, last_active_date FROM streaks WHERE user_id = $1`
 
 	s := &domain.Streak{}
 	err := r.db.QueryRow(ctx, query, userID).Scan(&s.ID, &s.UserID, &s.CurrentStreak, &s.LongestStreak, &s.LastActivityDate)
