@@ -11,19 +11,6 @@ import (
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/results"
 )
 
-type STTService interface {
-	TranscribeReader(ctx context.Context, audio io.Reader, language string) (string, error)
-}
-
-type AudioStorage interface {
-	UploadFile(ctx context.Context, file io.Reader, fileSize int64, contentType, ext string) (string, error)
-	FileURL(ctx context.Context, filePath string) (string, error)
-}
-
-type ResultService interface {
-	CreateFromText(ctx context.Context, input results.CreateInput) (*learning.ResultView, error)
-}
-
 type Service struct {
 	stt     STTService
 	storage AudioStorage
@@ -32,21 +19,6 @@ type Service struct {
 
 func NewService(stt STTService, storage AudioStorage, results ResultService) *Service {
 	return &Service{stt: stt, storage: storage, results: results}
-}
-
-type TextInput struct {
-	UserID         string
-	Text           string
-	DailySessionID string
-}
-
-type AudioInput struct {
-	UserID         string
-	File           io.Reader
-	FileSize       int64
-	ContentType    string
-	Ext            string
-	DailySessionID string
 }
 
 func (s *Service) SubmitText(ctx context.Context, input TextInput) (*learning.ResultView, error) {
