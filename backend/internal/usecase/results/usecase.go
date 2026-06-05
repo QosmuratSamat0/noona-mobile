@@ -7,6 +7,7 @@ import (
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/learning"
 	linguisticDomain "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/daily"
 )
 
 type Service struct {
