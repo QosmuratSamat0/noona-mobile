@@ -22,6 +22,15 @@ type GeminiProvider struct {
 }
 
 func NewGeminiProvider(ctx context.Context, apiKey string, modelName string) (*GeminiProvider, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, fmt.Errorf("gemini llm: empty api key")
+	}
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return nil, fmt.Errorf("gemini llm: empty model")
+	}
+
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gemini client: %w", err)

@@ -63,6 +63,9 @@ func (h *InsightsHandler) MistakeMemory(w http.ResponseWriter, r *http.Request) 
 		render.JSON(w, r, resp.Error("internal error"))
 		return
 	}
+	if summary == nil {
+		summary = &learning.MemorySummary{}
+	}
 	render.JSON(w, r, MistakeMemoryResponse{
 		TopMistakes: memoryItems(summary.TopMistakes),
 		Improving:   memoryItems(summary.Improving),

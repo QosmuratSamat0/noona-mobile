@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 )
 
 type UseCase struct {
@@ -16,6 +18,17 @@ func NewUseCase(llm ...LLMProvider) *UseCase {
 		uc.llm = llm[0]
 	}
 	return uc
+}
+
+func (uc *UseCase) Analyze(ctx context.Context, text string) (*linguistic.AIAnalysis, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	if uc.llm == nil {
+		return nil, fmt.Errorf("linguistic analysis provider is not configured")
+	}
+	return uc.llm.Analyze(ctx, text)
 }
 
 func (uc *UseCase) Translate(ctx context.Context, text, targetLang string) (string, error) {

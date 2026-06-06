@@ -18,6 +18,16 @@ type ResultResponse struct {
 	NextSteps       []string                 `json:"next_steps"`
 }
 
+type ResultListItemResponse struct {
+	ResultID      string    `json:"result_id"`
+	SessionID     string    `json:"session_id,omitempty"`
+	OriginalText  string    `json:"original_text"`
+	CorrectedText string    `json:"corrected_text"`
+	Score         int       `json:"score"`
+	CEFRLevel     string    `json:"cefr_level"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type MistakeResponse struct {
 	Type          string `json:"type"`
 	PatternKey    string `json:"pattern_key"`
@@ -68,6 +78,22 @@ func toResultResponse(view *learning.ResultView) ResultResponse {
 		SpeakingQuality: view.SpeakingQuality,
 		NextSteps:       view.NextSteps,
 	}
+}
+
+func toResultListResponse(results []learning.Result) []ResultListItemResponse {
+	items := make([]ResultListItemResponse, 0, len(results))
+	for _, result := range results {
+		items = append(items, ResultListItemResponse{
+			ResultID:      result.ID,
+			SessionID:     result.DailySessionID,
+			OriginalText:  result.OriginalText,
+			CorrectedText: result.CorrectedText,
+			Score:         result.Score,
+			CEFRLevel:     result.CEFRLevel,
+			CreatedAt:     result.CreatedAt,
+		})
+	}
+	return items
 }
 
 func toDailyResponse(session *learning.DailySession) *DailySessionResponse {

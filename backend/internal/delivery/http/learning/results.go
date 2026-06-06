@@ -58,5 +58,5 @@ func (h *ResultsHandler) List(w http.ResponseWriter, r *http.Request) {
 		render.JSON(w, r, resp.Error("internal error"))
 		return
 	}
-	render.JSON(w, r, results)
+	render.JSON(w, r, toResultListResponse(results))
 }

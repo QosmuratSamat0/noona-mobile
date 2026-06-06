@@ -11,9 +11,7 @@ import (
 	model "github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/user"
 	authUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/auth"
 	chatUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/chat"
-	dailyUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/daily"
 	practiceUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/practice"
-	resultsUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/results"
 	userUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/user"
 )
 
@@ -59,7 +57,6 @@ type PracticeUseCase interface {
 }
 
 type ResultsUseCase interface {
-	CreateFromText(ctx context.Context, input resultsUseCase.CreateInput) (*learningDomain.ResultView, error)
 	Get(ctx context.Context, userID, resultID string) (*learningDomain.ResultView, error)
 	List(ctx context.Context, userID, sessionID string) ([]learningDomain.Result, error)
 }
@@ -70,7 +67,7 @@ type DailyUseCase interface {
 	Today(ctx context.Context, userID string) (*learningDomain.DailySession, error)
 	ByDate(ctx context.Context, userID string, date time.Time) (*learningDomain.DailySession, error)
 	EnsureSession(ctx context.Context, userID, sessionID string) (*learningDomain.DailySession, error)
-	ApplyResult(ctx context.Context, sessionID string, metrics dailyUseCase.ResultMetrics) error
+	ApplyResult(ctx context.Context, sessionID string, metrics learningDomain.ResultMetrics) error
 }
 
 type MistakeMemoryUseCase interface {

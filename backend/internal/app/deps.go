@@ -31,8 +31,13 @@ import (
 	audioRedisRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/audio/redis"
 	authRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/auth/postgres"
 	chatRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/chat/postgres"
-	learningRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/learning/postgres"
+	dailyRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/daily/postgres"
+	drillsRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/drills/postgres"
+	memoryRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/memory/postgres"
+	mistakesRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/mistakes/postgres"
+	resultsRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/results/postgres"
 	userRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/user/postgres"
+	vocabularyRepo "github.com/QosmuratSamat0/Noona-AI/backend/internal/infrastructure/repository/vocabulary/postgres"
 
 	activityUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/activity"
 	analysisUseCase "github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/analysis"
@@ -80,7 +85,12 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 	authRepo := authRepo.New(db)
 	chatRepo := chatRepo.New(db, redisClient)
 	activityRepo := activityRepo.New(db, redisClient)
-	learningStore := learningRepo.New(db)
+	resultsStore := resultsRepo.New(db)
+	mistakesStore := mistakesRepo.New(db)
+	memoryStore := memoryRepo.New(db)
+	drillsStore := drillsRepo.New(db)
+	vocabularyStore := vocabularyRepo.New(db)
+	dailyStore := dailyRepo.New(db)
 
 	audioStorage := audioMinioRepo.NewStorageRepo(
 		minioClient,
@@ -183,13 +193,19 @@ func BuildDeps(db *pgxpool.Pool, minioClient *minio.Client, redisClient *redis.C
 		hub,
 	)
 
-	mistakeMemoryUC := mistakeMemoryUseCase.NewService(learningStore)
-	vocabularyUC := vocabularyUseCase.NewService(learningStore)
-	dailyUC := dailyUseCase.NewService(learningStore)
-	drillsUC := drillsUseCase.NewService(learningStore)
-	resultsUC := resultsUseCase.NewService(learningStore, llm, mistakeMemoryUC, drillsUC, vocabularyUC, dailyUC, activityUC)
-	practiceUC := practiceUseCase.NewService(stt, audioStorage, resultsUC)
-	analysisUC := analysisUseCase.NewService(mistakeMemoryUC, vocabularyUC, dailyUC)
+	mistakeMemoryUC := mistakeMemoryUseCase.NewService(memoryStore)
+	vocabularyUC := vocabularyUseCase.NewService(vocabularyStore)
+	dailyUC := dailyUseCase.NewService(dailyStore)
+	drillsUC := drillsUseCase.NewService(drillsStore)
+	resultsUC := resultsUseCase.NewService(resultsStore, resultsUseCase.Dependencies{
+		Mistakes:   mistakesStore,
+		Vocabulary: vocabularyStore,
+	})
+	practiceUC := practiceUseCase.NewService(stt, audioStorage, resultsUC, linguisticUC, mistakeMemoryUC, drillsUC, vocabularyUC, dailyUC, activityUC)
+	analysisUC := analysisUseCase.NewService(mistakeMemoryUC, vocabularyUC, dailyUC, analysisUseCase.Dependencies{
+		Results:  resultsUC,
+		Activity: activityUC,
+	})
 
 	// AudioProcessor orchestrates STT → LLM → TTS pipeline.
 	processor := audioUseCase.NewAudioProcessor(stt, llm, tts, hub)

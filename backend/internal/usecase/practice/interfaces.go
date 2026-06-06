@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/learning"
+	"github.com/QosmuratSamat0/Noona-AI/backend/internal/domain/linguistic"
 	"github.com/QosmuratSamat0/Noona-AI/backend/internal/usecase/results"
 )
 
@@ -18,5 +19,30 @@ type AudioStorage interface {
 }
 
 type ResultService interface {
-	CreateFromText(ctx context.Context, input results.CreateInput) (*learning.ResultView, error)
+	Create(ctx context.Context, input results.CreateInput) (*learning.ResultView, error)
+}
+
+type LinguisticService interface {
+	Analyze(ctx context.Context, text string) (*linguistic.AIAnalysis, error)
+}
+
+type MistakeMemoryService interface {
+	UpsertFromMistakes(ctx context.Context, userID string, mistakes []learning.Mistake) ([]learning.MistakeMemory, error)
+}
+
+type DrillsService interface {
+	GenerateForMemories(ctx context.Context, userID string, memories []learning.MistakeMemory) ([]learning.Drill, error)
+}
+
+type VocabularyService interface {
+	TrackTranscript(ctx context.Context, userID, resultID, transcriptID, text string) (learning.VocabularyStats, error)
+}
+
+type DailyService interface {
+	EnsureSession(ctx context.Context, userID, sessionID string) (*learning.DailySession, error)
+	ApplyResult(ctx context.Context, sessionID string, metrics learning.ResultMetrics) error
+}
+
+type ActivityService interface {
+	RecordActivity(ctx context.Context, userID string) error
 }

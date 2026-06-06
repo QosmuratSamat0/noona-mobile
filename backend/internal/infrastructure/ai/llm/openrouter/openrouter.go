@@ -277,16 +277,18 @@ func (p *Provider) complete(ctx context.Context, messages []message, jsonMode bo
 		return "", fmt.Errorf("openrouter llm: read response: %w", err)
 	}
 
-	var parsed chatResponse
-	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return "", fmt.Errorf("openrouter llm: unmarshal response: %w", err)
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := strings.TrimSpace(string(respBytes))
-		if parsed.Error != nil && parsed.Error.Message != "" {
+		var parsed chatResponse
+		if err := json.Unmarshal(respBytes, &parsed); err == nil && parsed.Error != nil && parsed.Error.Message != "" {
 			msg = parsed.Error.Message
 		}
 		return "", mapHTTPError(resp.StatusCode, msg)
+	}
+
+	var parsed chatResponse
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return "", fmt.Errorf("openrouter llm: unmarshal response: %w", err)
 	}
 	if len(parsed.Choices) == 0 {
 		return "", fmt.Errorf("openrouter llm: empty choices")

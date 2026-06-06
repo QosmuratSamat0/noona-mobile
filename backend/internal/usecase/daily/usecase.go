@@ -46,7 +46,7 @@ func (s *Service) EnsureSession(ctx context.Context, userID, sessionID string) (
 	return s.repo.StartSession(ctx, userID, today)
 }
 
-func (s *Service) ApplyResult(ctx context.Context, sessionID string, metrics ResultMetrics) error {
+func (s *Service) ApplyResult(ctx context.Context, sessionID string, metrics learning.ResultMetrics) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("daily session id is required")
 	}
