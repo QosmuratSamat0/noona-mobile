@@ -1,8 +1,41 @@
-import { Tabs } from "expo-router";
+import { Tabs, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants/theme";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { api, getToken } from "@/utils/api";
 
 export default function TabsLayout() {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          router.replace("/login");
+          return;
+        }
+        
+        // Verify token with backend
+        await api.get("/users/me");
+        setLoading(false);
+      } catch (err) {
+        console.log("Auth error", err);
+        router.replace("/login");
+      }
+    };
+    checkAuth();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{

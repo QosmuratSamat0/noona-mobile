@@ -75,7 +75,7 @@ export default function LessonSessionScreen() {
         ) : (
           <View style={styles.voiceBox}>
             <Text variant="caption">Hold the button and speak clearly</Text>
-            <MicButton onSubmit={submit} />
+            <MicButton onStop={submit} />
             <Text style={styles.hold}>Hold to speak</Text>
             <Pressable onPress={() => setTyping(true)} style={styles.typeInstead}>
               <Ionicons name="keypad-outline" size={14} color={colors.primary} />

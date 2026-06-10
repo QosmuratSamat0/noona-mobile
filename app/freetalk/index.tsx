@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { Pressable, StyleSheet, TextInput, View, FlatList, KeyboardAvoidingView, Platform } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
@@ -7,6 +7,9 @@ import { Text } from "@/components/Text";
 import { MicButton } from "@/components/MicButton";
 import { CorrectionBadge } from "@/components/CorrectionBadge";
 import { colors } from "@/constants/theme";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAudio } from "@/hooks/useAudio";
+import { api } from "@/utils/api";
 
 type Message = {
   id: string;
@@ -19,97 +22,269 @@ type Message = {
   };
 };
 
-const seed: Message[] = [
-  { id: "1", role: "ai", text: "Hey Ayan! What did you do today?" },
-  {
-    id: "2",
-    role: "user",
-    text: "I am agree with you, today was good.",
-    correction: {
-      pattern: "agreement",
-      better: "I agree with you.",
-      why: "Do not use 'am' with 'agree'.",
-    },
-  },
-  { id: "3", role: "ai", text: "Nice. Tell me about the best part of your day." },
-];
-
 export default function FreeTalkScreen() {
-  const [messages, setMessages] = useState(seed);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [sessionID, setSessionID] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [playedJobs, setPlayedJobs] = useState<Set<string>>(new Set());
+  const [inputType, setInputType] = useState<"voice" | "text">("voice");
 
-  const send = () => {
+  const { messages: wsMessages } = useWebSocket();
+  const { isRecording, startRecording, stopRecording, playAudio } = useAudio();
+  const flatListRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const res = await api.post("/sessions");
+        setSessionID(res.data.id);
+        
+        // Add greeting message
+        setMessages([
+          { id: "greeting", role: "ai", text: "Hey! What did you do today?" }
+        ]);
+      } catch (err) {
+        console.error("Failed to create chat session", err);
+      }
+    };
+    initSession();
+  }, []);
+
+  useEffect(() => {
+    if (!currentJobId) return;
+
+    const jobMsgs = wsMessages.filter(m => m.data?.job_id === currentJobId);
+    
+    // User Message from Audio
+    const transcript = jobMsgs.find(m => m.type === "transcript_final");
+    if (transcript) {
+      setMessages(prev => {
+        if (prev.find(m => m.id === currentJobId)) return prev;
+        return [...prev, { id: currentJobId, role: "user", text: transcript.data.text }];
+      });
+    }
+
+    // Feedback
+    const quickFeedback = jobMsgs.find(m => m.type === "quick_feedback");
+    if (quickFeedback && quickFeedback.data.corrected_text !== quickFeedback.data.original) {
+      setMessages(prev => prev.map(m => {
+        if (m.id === currentJobId) {
+          return {
+            ...m,
+            correction: {
+              pattern: "grammar",
+              better: quickFeedback.data.corrected_text,
+              why: quickFeedback.data.reason
+            }
+          };
+        }
+        return m;
+      }));
+    }
+
+    // AI Reply
+    const coachReply = jobMsgs.find(m => m.type === "coach_reply");
+    if (coachReply) {
+      const aiId = `ai-${currentJobId}`;
+      setMessages(prev => {
+        if (prev.find(m => m.id === aiId)) return prev;
+        return [...prev, { id: aiId, role: "ai", text: coachReply.data.text }];
+      });
+    }
+
+    // Play Audio
+    const ttsReady = jobMsgs.find(m => m.type === "tts_ready");
+    if (ttsReady && ttsReady.data.audio_url && !playedJobs.has(currentJobId)) {
+      setPlayedJobs(prev => new Set(prev).add(currentJobId));
+      playAudio(ttsReady.data.audio_url);
+    }
+  }, [wsMessages, currentJobId, playedJobs, playAudio]);
+
+  const sendText = async () => {
     const value = draft.trim();
-    if (!value) return;
-    setMessages((items) => [...items, { id: `u-${Date.now()}`, role: "user", text: value }]);
+    if (!value || !sessionID) return;
+
+    const tempId = `temp-${Date.now()}`;
+    setMessages(items => [...items, { id: tempId, role: "user", text: value }]);
     setDraft("");
-    setTimeout(() => {
-      setMessages((items) => [
-        ...items,
-        { id: `a-${Date.now()}`, role: "ai", text: "Got it - tell me more!" },
-      ]);
-    }, 500);
+
+    try {
+      const res = await api.post(`/sessions/${sessionID}/messages`, { content: value });
+      const { id, content, feedback, audio_url } = res.data;
+      
+      setMessages(prev => prev.map(m => {
+        if (m.id === tempId) {
+          return {
+            ...m,
+            id: id + "-user",
+            correction: feedback && feedback.corrected_text !== feedback.original ? {
+              pattern: "grammar",
+              better: feedback.corrected_text,
+              why: feedback.reason
+            } : undefined
+          };
+        }
+        return m;
+      }));
+
+      setMessages(items => [...items, { id, role: "ai", text: content }]);
+
+      if (audio_url) {
+        playAudio(audio_url);
+      }
+    } catch (err) {
+      console.error("Failed to send text message", err);
+    }
+  };
+
+  const handleStartRecording = async () => {
+    setCurrentJobId(null);
+    await startRecording();
+  };
+
+  const handleStopRecording = async () => {
+    const uri = await stopRecording();
+    if (!uri || !sessionID) return;
+
+    try {
+      const formData = new FormData();
+      
+      let fileToUpload: any;
+      if (Platform.OS === 'web') {
+        const fetchResponse = await fetch(uri);
+        const blob = await fetchResponse.blob();
+        fileToUpload = new File([blob], 'audio.webm', { type: blob.type });
+      } else {
+        fileToUpload = {
+          uri,
+          name: 'audio.m4a',
+          type: 'audio/m4a'
+        };
+      }
+      
+      formData.append('file', fileToUpload);
+      formData.append('session_id', sessionID);
+
+      const response = await api.post('/audio/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      setCurrentJobId(response.data.job_id);
+    } catch (err) {
+      console.error("Audio upload failed", err);
+    }
+  };
+
+  const handleCancelRecording = async () => {
+    await stopRecording();
+  };
+
+
+  const renderMessage = ({ item: message }: { item: Message }) => {
+    if (message.role === "ai") {
+      return (
+        <View style={styles.aiBubble}>
+          <Text>{message.text}</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.userWrap}>
+        <View style={styles.userBubble}>
+          <Text style={styles.userText}>{message.text}</Text>
+        </View>
+        {message.correction && <CorrectionBadge {...message.correction} />}
+      </View>
+    );
   };
 
   return (
     <Screen scroll={false} padded={false}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="arrow-back" size={18} color={colors.text} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text variant="subtitle">Free Talk</Text>
-          <Text variant="caption">Open practice - AI still corrects you</Text>
-        </View>
-        <Pressable onPress={() => router.push("/freetalk/summary")} style={styles.end}>
-          <Text style={styles.endText}>End talk</Text>
-          <Ionicons name="flag" size={13} color="#fff" />
-        </Pressable>
-      </View>
-
-      <View style={styles.chat}>
-        <View style={styles.notice}>
-          <Text variant="caption">
-            Chat naturally. Noona saves repeated patterns quietly and turns them into quick lessons.
-          </Text>
-        </View>
-        {messages.map((message) =>
-          message.role === "ai" ? (
-            <View key={message.id} style={styles.aiBubble}>
-              <Text>{message.text}</Text>
-            </View>
-          ) : (
-            <View key={message.id} style={styles.userWrap}>
-              <View style={styles.userBubble}>
-                <Text style={styles.userText}>{message.text}</Text>
-              </View>
-              {message.correction && <CorrectionBadge {...message.correction} />}
-            </View>
-          ),
-        )}
-      </View>
-
-      <View style={styles.composer}>
-        <View style={styles.inputRow}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Type a message..."
-            style={styles.input}
-            onSubmitEditing={send}
-          />
-          <Pressable onPress={send} style={styles.send}>
-            <Ionicons name="send" size={17} color="#fff" />
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.back}>
+            <Ionicons name="arrow-back" size={18} color={colors.text} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text variant="subtitle">Free Talk</Text>
+            <Text variant="caption">Open practice - AI still corrects you</Text>
+          </View>
+          <Pressable onPress={() => router.push("/freetalk/summary")} style={styles.end}>
+            <Text style={styles.endText}>End talk</Text>
+            <Ionicons name="flag" size={13} color="#fff" />
           </Pressable>
         </View>
-        <View style={styles.voiceRow}>
-          <MicButton size={50} />
-          <Text variant="caption">or hold to speak</Text>
+
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.chat}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          ListHeaderComponent={
+            <View style={styles.notice}>
+              <Text variant="caption">
+                Chat naturally. Noona saves repeated patterns quietly and turns them into quick lessons.
+              </Text>
+            </View>
+          }
+          renderItem={renderMessage}
+        />
+
+        <View style={styles.composer}>
+          {inputType === "text" ? (
+            <View style={styles.inputRow}>
+              <TextInput
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="Type a message..."
+                style={styles.input}
+                onSubmitEditing={sendText}
+                autoFocus
+              />
+              <Pressable onPress={() => setInputType("voice")} style={styles.toggleBtn}>
+                <Ionicons name="mic-outline" size={22} color={colors.primary} />
+              </Pressable>
+              <Pressable 
+                onPress={sendText} 
+                style={[styles.send, !draft.trim() && { opacity: 0.5 }]}
+                disabled={!draft.trim()}
+              >
+                <Ionicons name="send" size={17} color="#fff" />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={[styles.voiceRow, isRecording && { justifyContent: "flex-end", paddingRight: 8 }]}>
+              {/* Balances the switch button on the right */}
+              {!isRecording && <View style={{ width: 44 }} />}
+              
+              <View style={[styles.voiceCenter, isRecording && { flex: 0, width: 50, height: 50, alignItems: "center", justifyContent: "center" }]}>
+                <MicButton 
+                  size={50} 
+                  onStart={handleStartRecording} 
+                  onStop={handleStopRecording} 
+                  onCancel={handleCancelRecording}
+                />
+                {!isRecording && (
+                  <Text variant="caption">
+                    or hold to speak
+                  </Text>
+                )}
+              </View>
+
+              {!isRecording && (
+                <Pressable onPress={() => setInputType("text")} style={styles.toggleBtn}>
+                  <Ionicons name="keypad-outline" size={22} color={colors.primary} />
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
-        <Pressable onPress={() => router.push("/freetalk/summary")}>
-          <Text style={styles.finish}>Finish and see patterns</Text>
-        </Pressable>
-      </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -149,9 +324,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   chat: {
-    flex: 1,
     gap: 12,
     padding: 16,
+    paddingBottom: 32,
   },
   notice: {
     borderRadius: 18,
@@ -159,6 +334,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primaryLight,
     backgroundColor: colors.card,
     padding: 12,
+    marginBottom: 10,
   },
   aiBubble: {
     maxWidth: "82%",
@@ -188,6 +364,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingBottom: 24,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.card,
@@ -216,8 +393,22 @@ const styles = StyleSheet.create({
   voiceRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+  },
+  voiceCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
     gap: 12,
+  },
+  toggleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f1f0f7",
   },
   finish: {
     textAlign: "center",

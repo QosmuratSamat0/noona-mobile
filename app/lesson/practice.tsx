@@ -80,7 +80,7 @@ export default function PracticeMistakeScreen() {
           <Text variant="subtitle" style={{ textAlign: "center", marginTop: 8 }}>
             "I went to school yesterday."
           </Text>
-          <MicButton size={76} onSubmit={() => setDone(true)} />
+          <MicButton size={76} onStop={() => setDone(true)} />
           <Text style={styles.hold}>Hold to speak</Text>
         </Card>
       )}

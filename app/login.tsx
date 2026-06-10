@@ -3,13 +3,80 @@ import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Text } from "@/components/Text";
+import { TextInput, ActivityIndicator, Alert } from "react-native";
+import { useState, useEffect } from "react";
+import { api, setTokens } from "../utils/api";
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const googleIcon = {
   uri: "https://developers.google.com/identity/images/g-logo.png",
 };
 
 export default function LoginScreen() {
-  const enterApp = () => router.replace("/");
+  const [isLogin, setIsLogin] = useState(true);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'your-client-id.apps.googleusercontent.com',
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { id_token } = response.params;
+      handleGoogleLoginBackend(id_token!);
+    }
+  }, [response]);
+
+  const handleGoogleLoginBackend = async (idToken: string) => {
+    setLoading(true);
+    try {
+      const res = await api.post("/auth/google", { id_token: idToken });
+      if (res.data?.access_token) {
+        await setTokens(res.data.access_token, res.data.refresh_token || "");
+        router.replace("/");
+      }
+    } catch (error: any) {
+      Alert.alert("Google Login Failed", error.response?.data?.error || "An error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAuth = async () => {
+    if (!email || !password || (!isLogin && !name)) {
+      Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      if (isLogin) {
+        const response = await api.post("/auth/login", { email, password });
+        if (response.data?.access_token) {
+          await setTokens(response.data.access_token, response.data.refresh_token || "");
+          router.replace("/");
+        }
+      } else {
+        await api.post("/auth/register", { name, email, password });
+        // Auto login after register
+        const response = await api.post("/auth/login", { email, password });
+        if (response.data?.access_token) {
+          await setTokens(response.data.access_token, response.data.refresh_token || "");
+          router.replace("/");
+        }
+      }
+    } catch (error: any) {
+      Alert.alert(isLogin ? "Login Failed" : "Registration Failed", error.response?.data?.error || "An error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.page}>
@@ -17,21 +84,61 @@ export default function LoginScreen() {
       <View style={styles.phone}>
         <View style={styles.topContent}>
           <LinearGradient colors={["#745cff", "#614df2"]} style={styles.logo}>
-            <Text style={styles.logoText}>ML</Text>
+            <Text style={styles.logoText}>N</Text>
           </LinearGradient>
 
-          <Text style={styles.title}>Mini-Loora</Text>
+          <Text style={styles.title}>Noona</Text>
           <Text style={styles.subtitle}>AI English Speaking Coach</Text>
 
           <View style={styles.authBlock}>
-            <Pressable onPress={enterApp} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed]}>
-              <Image source={googleIcon} style={styles.googleIcon} resizeMode="contain" />
-              <Text style={styles.googleText}>Continue with Google</Text>
-            </Pressable>
+            <View style={{ gap: 12, width: '100%' }}>
+              {!isLogin && (
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Name" 
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                />
+              )}
+              <TextInput 
+                style={styles.input} 
+                placeholder="Email" 
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              <TextInput 
+                style={styles.input} 
+                placeholder="Password" 
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+              <Pressable 
+                onPress={handleAuth} 
+                disabled={loading}
+                style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, { backgroundColor: '#614df2' }]}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={[styles.googleText, { color: '#fff' }]}>
+                    {isLogin ? "Sign In" : "Create Account"}
+                  </Text>
+                )}
+              </Pressable>
 
-            <Pressable onPress={enterApp} style={({ pressed }) => [styles.guestButton, pressed && styles.pressed]}>
-              <Text style={styles.guestText}>Continue as guest</Text>
-            </Pressable>
+              <Pressable 
+                onPress={() => promptAsync()} 
+                disabled={!request || loading}
+                style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, { marginTop: 12 }]}
+              >
+                <Image source={googleIcon} style={styles.googleIcon} />
+                <Text style={styles.googleText}>Continue with Google</Text>
+              </Pressable>
+            </View>
 
             <Text style={styles.terms}>
               By continuing, you agree to our Terms of Service and Privacy{"\n"}Policy.
@@ -42,16 +149,16 @@ export default function LoginScreen() {
         <View style={styles.bottom}>
           <View style={styles.dividerRow}>
             <View style={styles.line} />
-            <Text style={styles.dividerText}>or use email</Text>
+            <Text style={styles.dividerText}>or</Text>
             <View style={styles.line} />
           </View>
 
           <View style={styles.links}>
-            <Pressable onPress={enterApp}>
-              <Text style={styles.linkText}>Sign in</Text>
+            <Pressable onPress={() => setIsLogin(true)}>
+              <Text style={[styles.linkText, isLogin && styles.activeLink]}>Sign in</Text>
             </Pressable>
-            <Pressable onPress={enterApp}>
-              <Text style={styles.linkText}>Create account</Text>
+            <Pressable onPress={() => setIsLogin(false)}>
+              <Text style={[styles.linkText, !isLogin && styles.activeLink]}>Create account</Text>
             </Pressable>
           </View>
         </View>
@@ -65,21 +172,21 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#eef3f8",
-    paddingHorizontal: 28,
-    paddingVertical: 24,
+    backgroundColor: Platform.OS === "web" ? "#eef3f8" : "#ffffff",
+    paddingHorizontal: Platform.OS === "web" ? 28 : 0,
+    paddingVertical: Platform.OS === "web" ? 24 : 0,
   },
   phone: {
     width: "100%",
-    maxWidth: 390,
-    minHeight: Platform.OS === "web" ? 790 : "92%",
-    borderRadius: 36,
-    borderWidth: 1,
+    flex: 1,
+    maxWidth: Platform.OS === "web" ? 390 : "100%",
+    borderRadius: Platform.OS === "web" ? 36 : 0,
+    borderWidth: Platform.OS === "web" ? 1 : 0,
     borderColor: "#cbd7e6",
     backgroundColor: "#ffffff",
     paddingHorizontal: 24,
-    paddingTop: 64,
-    paddingBottom: 30,
+    paddingTop: Platform.OS === "web" ? 64 : 80,
+    paddingBottom: Platform.OS === "web" ? 30 : 40,
     justifyContent: "space-between",
   },
   topContent: {
@@ -195,5 +302,19 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.82,
     transform: [{ scale: 0.99 }],
+  },
+  input: {
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e3e8f2",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: "#020817",
+  },
+  activeLink: {
+    color: "#614df2",
+    fontWeight: "800",
   },
 });
