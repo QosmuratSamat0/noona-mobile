@@ -192,6 +192,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    width: 180,
+    justifyContent: "flex-end",
   },
   recordIndicator: {
     flexDirection: "row",
@@ -210,7 +212,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   slideText: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.muted,
     fontWeight: "500",
   },
