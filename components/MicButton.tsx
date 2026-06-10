@@ -188,12 +188,10 @@ const styles = StyleSheet.create({
   slideOverlay: {
     position: "absolute",
     right: "100%",
-    marginRight: 16,
+    marginRight: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    width: 240,
-    justifyContent: "flex-end",
+    gap: 10,
   },
   recordIndicator: {
     flexDirection: "row",

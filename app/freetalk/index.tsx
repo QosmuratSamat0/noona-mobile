@@ -262,7 +262,7 @@ export default function FreeTalkScreen() {
               {/* Balances the switch button on the right */}
               {!isRecording && <View style={{ width: 44 }} />}
               
-              <View style={[styles.voiceCenter, isRecording && { justifyContent: "flex-end", paddingRight: 8 }]}>
+              <View style={styles.voiceCenter}>
                 <MicButton 
                   size={50} 
                   onStart={handleStartRecording} 
