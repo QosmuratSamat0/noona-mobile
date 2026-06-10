@@ -258,11 +258,11 @@ export default function FreeTalkScreen() {
               </Pressable>
             </View>
           ) : (
-            <View style={[styles.voiceRow, isRecording && { justifyContent: "flex-end", paddingRight: 8 }]}>
+            <View style={styles.voiceRow}>
               {/* Balances the switch button on the right */}
               {!isRecording && <View style={{ width: 44 }} />}
               
-              <View style={[styles.voiceCenter, isRecording && { flex: 0, width: 50, height: 50, alignItems: "center", justifyContent: "center" }]}>
+              <View style={[styles.voiceCenter, isRecording && { justifyContent: "flex-end", paddingRight: 8 }]}>
                 <MicButton 
                   size={50} 
                   onStart={handleStartRecording} 
