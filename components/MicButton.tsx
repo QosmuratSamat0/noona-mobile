@@ -8,12 +8,14 @@ export function MicButton({
   size = 96, 
   onStart, 
   onStop, 
-  onCancel 
+  onCancel,
+  disabled = false
 }: { 
   size?: number; 
   onStart?: () => void; 
   onStop?: () => void; 
-  onCancel?: () => void 
+  onCancel?: () => void;
+  disabled?: boolean;
 }) {
   const [recording, setRecording] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -26,12 +28,20 @@ export function MicButton({
   // Track if we cancelled during the current drag session
   const hasCancelled = useRef(false);
 
+  const disabledRef = useRef(disabled);
+  const callbacksRef = useRef({ onStart, onStop, onCancel });
+
+  useEffect(() => {
+    disabledRef.current = disabled;
+    callbacksRef.current = { onStart, onStop, onCancel };
+  }, [disabled, onStart, onStop, onCancel]);
+
   useEffect(() => {
     if (recording) {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(dotOpacity, { toValue: 0.2, duration: 500, useNativeDriver: true }),
-          Animated.timing(dotOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+          Animated.timing(dotOpacity, { toValue: 0.2, duration: 500, useNativeDriver: Platform.OS !== 'web' }),
+          Animated.timing(dotOpacity, { toValue: 1, duration: 500, useNativeDriver: Platform.OS !== 'web' }),
         ])
       ).start();
     } else {
@@ -57,16 +67,18 @@ export function MicButton({
     setDuration(0);
     panX.setValue(0);
     
-    onStart?.();
+    callbacksRef.current.onStart?.();
     
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(40); // 40ms light vibration for web
     }
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.35, duration: 650, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.35, duration: 650, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: Platform.OS !== 'web' }),
       ]),
     ).start();
 
@@ -87,18 +99,25 @@ export function MicButton({
 
     Animated.spring(panX, {
       toValue: 0,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
       friction: 6,
       tension: 40,
     }).start();
 
     if (shouldSave) {
-      onStop?.();
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } else if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(40);
+      }
+      callbacksRef.current.onStop?.();
     } else {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } else if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([50, 50, 50]); // warning vibration pattern
       }
-      onCancel?.();
+      callbacksRef.current.onCancel?.();
     }
   };
 
@@ -106,15 +125,30 @@ export function MicButton({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => !disabledRef.current,
+      onMoveShouldSetPanResponder: () => !disabledRef.current,
       
       onPanResponderGrant: () => {
+        if (disabledRef.current) return;
+
+        // Unlock AudioContext on Web
+        if (Platform.OS === 'web') {
+          try {
+            const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+            if (AudioContextClass) {
+              const tempCtx = new AudioContextClass();
+              if (tempCtx.state === 'suspended') {
+                tempCtx.resume().catch(() => {});
+              }
+            }
+          } catch (e) {}
+        }
+
         start();
       },
       
       onPanResponderMove: (evt, gestureState) => {
-        if (hasCancelled.current) return;
+        if (hasCancelled.current || disabledRef.current) return;
         
         // Only allow dragging left
         const dx = Math.min(0, gestureState.dx);
@@ -127,12 +161,14 @@ export function MicButton({
       },
       
       onPanResponderRelease: () => {
+        if (disabledRef.current) return;
         if (!hasCancelled.current) {
           stop(true);
         }
       },
       
       onPanResponderTerminate: () => {
+        if (disabledRef.current) return;
         if (!hasCancelled.current) {
           stop(false);
         }
@@ -168,7 +204,8 @@ export function MicButton({
               width: size, 
               height: size, 
               borderRadius: size / 2,
-              transform: [{ translateX: panX }, { scale: recording ? 1.15 : 1 }]
+              transform: [{ translateX: panX }, { scale: recording ? 1.15 : 1 }],
+              opacity: disabled ? 0.4 : 1
             }
           ]}
         >

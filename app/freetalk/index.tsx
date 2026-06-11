@@ -10,6 +10,7 @@ import { colors } from "@/constants/theme";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
 import { api } from "@/utils/api";
+import { Audio } from "expo-av";
 
 type Message = {
   id: string;
@@ -33,6 +34,8 @@ export default function FreeTalkScreen() {
   const { messages: wsMessages } = useWebSocket();
   const { isRecording, startRecording, stopRecording, playAudio } = useAudio();
   const flatListRef = useRef<FlatList>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const isAtBottomRef = useRef(true);
 
   useEffect(() => {
     const initSession = async () => {
@@ -44,8 +47,11 @@ export default function FreeTalkScreen() {
         setMessages([
           { id: "greeting", role: "ai", text: "Hey! What did you do today?" }
         ]);
+
+        // Pre-request microphone permission to avoid browser gesture blocks/lag later
+        await Audio.requestPermissionsAsync().catch(() => {});
       } catch (err) {
-        console.error("Failed to create chat session", err);
+        console.error("Failed to create chat session or request permissions", err);
       }
     };
     initSession();
@@ -61,6 +67,8 @@ export default function FreeTalkScreen() {
     if (transcript) {
       setMessages(prev => {
         if (prev.find(m => m.id === currentJobId)) return prev;
+        isAtBottomRef.current = true;
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
         return [...prev, { id: currentJobId, role: "user", text: transcript.data.text }];
       });
     }
@@ -89,6 +97,8 @@ export default function FreeTalkScreen() {
       const aiId = `ai-${currentJobId}`;
       setMessages(prev => {
         if (prev.find(m => m.id === aiId)) return prev;
+        isAtBottomRef.current = true;
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
         return [...prev, { id: aiId, role: "ai", text: coachReply.data.text }];
       });
     }
@@ -106,8 +116,10 @@ export default function FreeTalkScreen() {
     if (!value || !sessionID) return;
 
     const tempId = `temp-${Date.now()}`;
+    isAtBottomRef.current = true;
     setMessages(items => [...items, { id: tempId, role: "user", text: value }]);
     setDraft("");
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
 
     try {
       const res = await api.post(`/sessions/${sessionID}/messages`, { content: value });
@@ -128,7 +140,11 @@ export default function FreeTalkScreen() {
         return m;
       }));
 
-      setMessages(items => [...items, { id, role: "ai", text: content }]);
+      setMessages(items => {
+        isAtBottomRef.current = true;
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+        return [...items, { id, role: "ai", text: content }];
+      });
 
       if (audio_url) {
         playAudio(audio_url);
@@ -145,7 +161,10 @@ export default function FreeTalkScreen() {
 
   const handleStopRecording = async () => {
     const uri = await stopRecording();
-    if (!uri || !sessionID) return;
+    if (!uri || !sessionID) {
+      console.log('handleStopRecording: no uri or sessionID', { uri: !!uri, sessionID: !!sessionID });
+      return;
+    }
 
     try {
       const formData = new FormData();
@@ -154,7 +173,9 @@ export default function FreeTalkScreen() {
       if (Platform.OS === 'web') {
         const fetchResponse = await fetch(uri);
         const blob = await fetchResponse.blob();
-        fileToUpload = new File([blob], 'audio.webm', { type: blob.type });
+        const mimeType = blob.type || 'audio/webm';
+        fileToUpload = new File([blob], 'audio.webm', { type: mimeType });
+        console.log('Audio file prepared for upload:', { size: blob.size, type: mimeType });
       } else {
         fileToUpload = {
           uri,
@@ -170,11 +191,13 @@ export default function FreeTalkScreen() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
+      console.log('Audio uploaded, job_id:', response.data.job_id);
       setCurrentJobId(response.data.job_id);
     } catch (err) {
       console.error("Audio upload failed", err);
     }
   };
+
 
   const handleCancelRecording = async () => {
     await stopRecording();
@@ -199,14 +222,25 @@ export default function FreeTalkScreen() {
     );
   };
 
+  const KeyboardWrapper = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+
   return (
     <Screen scroll={false} padded={false}>
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
+      <KeyboardWrapper 
+        style={{ flex: 1, overflow: 'hidden' }} 
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.back}>
+          <Pressable 
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)");
+              }
+            }} 
+            style={styles.back}
+          >
             <Ionicons name="arrow-back" size={18} color={colors.text} />
           </Pressable>
           <View style={{ flex: 1 }}>
@@ -219,21 +253,40 @@ export default function FreeTalkScreen() {
           </Pressable>
         </View>
 
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.chat}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          ListHeaderComponent={
-            <View style={styles.notice}>
-              <Text variant="caption">
-                Chat naturally. Noona saves repeated patterns quietly and turns them into quick lessons.
-              </Text>
-            </View>
-          }
-          renderItem={renderMessage}
-        />
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            style={{ flex: 1 }}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.chat}
+            onScroll={(e) => {
+              const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+              // Add a small threshold (30px) to consider "at bottom"
+              const isBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 30;
+              isAtBottomRef.current = isBottom;
+              setShowScrollButton(!isBottom);
+            }}
+            scrollEventThrottle={16}
+            onContentSizeChange={() => {
+              if (isAtBottomRef.current) {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+            renderItem={renderMessage}
+          />
+          {showScrollButton && (
+            <Pressable 
+              style={styles.scrollBtn}
+              onPress={() => {
+                isAtBottomRef.current = true;
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }}
+            >
+              <Ionicons name="chevron-down" size={24} color="#fff" />
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.composer}>
           {inputType === "text" ? (
@@ -268,11 +321,14 @@ export default function FreeTalkScreen() {
                   onStart={handleStartRecording} 
                   onStop={handleStopRecording} 
                   onCancel={handleCancelRecording}
+                  disabled={!sessionID}
                 />
-                {!isRecording && (
+                {!isRecording ? (
                   <Text variant="caption">
                     or hold to speak
                   </Text>
+                ) : (
+                  <View style={{ height: 16 }} />
                 )}
               </View>
 
@@ -284,7 +340,7 @@ export default function FreeTalkScreen() {
             </View>
           )}
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardWrapper>
     </Screen>
   );
 }
@@ -327,6 +383,23 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     paddingBottom: 32,
+  },
+  scrollBtn: {
+    position: "absolute",
+    right: 20,
+    bottom: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    elevation: 4,
+    zIndex: 10,
   },
   notice: {
     borderRadius: 18,
@@ -397,10 +470,10 @@ const styles = StyleSheet.create({
   },
   voiceCenter: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: 4,
   },
   toggleBtn: {
     width: 44,
