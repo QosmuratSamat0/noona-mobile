@@ -5,7 +5,7 @@ import { Card } from "@/components/Card";
 import { Text } from "@/components/Text";
 import { colors } from "@/constants/theme";
 import { router } from "expo-router";
-import { removeToken, api } from "@/utils/api";
+import { api, isUnauthorizedError, removeToken } from "@/utils/api";
 import { useState, useEffect } from "react";
 
 export default function ProfileScreen() {
@@ -22,6 +22,11 @@ export default function ProfileScreen() {
         const response = await api.get("/users/me");
         setUser(response.data);
       } catch (err) {
+        if (isUnauthorizedError(err)) {
+          await removeToken();
+          router.replace("/login");
+          return;
+        }
         console.error("Failed to load user profile", err);
       } finally {
         setLoading(false);

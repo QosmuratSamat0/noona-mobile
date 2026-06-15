@@ -8,16 +8,19 @@ type Props = {
   variant?: "primary" | "secondary" | "outline";
   onPress?: () => void;
   style?: ViewStyle;
+  disabled?: boolean;
 };
 
-export function Button({ children, variant = "primary", onPress, style }: Props) {
+export function Button({ children, variant = "primary", onPress, style, disabled = false }: Props) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.base,
         styles[variant],
-        pressed && styles.pressed,
+        pressed && !disabled && styles.pressed,
+        disabled && styles.disabled,
         style,
       ]}
     >
@@ -48,6 +51,9 @@ const styles = StyleSheet.create({
   pressed: {
     transform: [{ scale: 0.98 }],
     opacity: 0.9,
+  },
+  disabled: {
+    opacity: 0.55,
   },
   label: {
     color: "#fff",

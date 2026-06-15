@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { colors } from "@/constants/theme";
 
@@ -16,13 +17,13 @@ export function Screen({ children, scroll = true, padded = true }: Props) {
       {scroll ? (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, padded && styles.padded]}
+          contentContainerStyle={[styles.scrollContent, padded && styles.padded]}
           showsVerticalScrollIndicator={false}
         >
           {children}
         </ScrollView>
       ) : (
-        <View style={[styles.content, padded && styles.padded]}>{children}</View>
+        <View style={[styles.fixedContent, padded && styles.padded]}>{children}</View>
       )}
     </SafeAreaView>
   );
@@ -36,13 +37,18 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
-  content: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     gap: 16,
     paddingBottom: 28,
+  },
+  fixedContent: {
+    flex: 1,
+    gap: 16,
   },
   padded: {
     paddingHorizontal: 20,
     paddingTop: 18,
+    paddingBottom: 28,
   },
 });

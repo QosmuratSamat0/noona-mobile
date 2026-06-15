@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { Text } from "@/components/Text";
 import { MicButton } from "@/components/MicButton";
-import { CorrectionBadge } from "@/components/CorrectionBadge";
+import { changedPhrase, CorrectionDetail, CorrectionSheet } from "@/components/CorrectionBadge";
 import { colors } from "@/constants/theme";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
@@ -18,6 +18,7 @@ type Message = {
   text: string;
   correction?: {
     pattern: string;
+    original: string;
     better: string;
     why: string;
   };
@@ -30,10 +31,12 @@ export default function FreeTalkScreen() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [playedJobs, setPlayedJobs] = useState<Set<string>>(new Set());
   const [inputType, setInputType] = useState<"voice" | "text">("voice");
+  const [selectedCorrection, setSelectedCorrection] = useState<CorrectionDetail | null>(null);
 
   const { messages: wsMessages } = useWebSocket();
   const { isRecording, startRecording, stopRecording, playAudio } = useAudio();
   const flatListRef = useRef<FlatList>(null);
+  const talkStartedAtRef = useRef<string>(new Date().toISOString());
   const [showScrollButton, setShowScrollButton] = useState(false);
   const isAtBottomRef = useRef(true);
 
@@ -82,6 +85,7 @@ export default function FreeTalkScreen() {
             ...m,
             correction: {
               pattern: "grammar",
+              original: quickFeedback.data.original || m.text,
               better: quickFeedback.data.corrected_text,
               why: quickFeedback.data.reason
             }
@@ -132,6 +136,7 @@ export default function FreeTalkScreen() {
             id: id + "-user",
             correction: feedback && feedback.corrected_text !== feedback.original ? {
               pattern: "grammar",
+              original: feedback.original || value,
               better: feedback.corrected_text,
               why: feedback.reason
             } : undefined
@@ -203,6 +208,72 @@ export default function FreeTalkScreen() {
     await stopRecording();
   };
 
+  const handleEndTalk = () => {
+    if (!sessionID) {
+      router.push("/freetalk/summary");
+      return;
+    }
+
+    const corrections = messages
+      .filter((message) => message.role === "user" && message.correction)
+      .map((message) => ({
+        id: message.id,
+        original: message.correction?.original || message.text,
+        corrected: message.correction?.better || message.text,
+        reason: message.correction?.why || "",
+        pattern: message.correction?.pattern || "grammar",
+      }));
+
+    const payload = JSON.stringify(corrections);
+
+    if (Platform.OS === "web") {
+      try {
+        localStorage.setItem(`freetalk-summary:${sessionID}`, payload);
+      } catch (error) {
+        console.warn("Failed to cache talk summary", error);
+      }
+    }
+
+    router.push({
+      pathname: "/freetalk/summary",
+      params: {
+        session_id: sessionID,
+        started_at: talkStartedAtRef.current,
+        corrections: payload,
+      },
+    });
+  };
+
+
+  const renderCorrectableText = (message: Message) => {
+    if (!message.correction) {
+      return <Text style={styles.userText}>{message.text}</Text>;
+    }
+
+    const changed = changedPhrase(message.correction.original || message.text, message.correction.better);
+    const phrase = changed.wrong;
+    const index = phrase ? message.text.toLowerCase().indexOf(phrase.toLowerCase()) : -1;
+    if (index < 0) {
+      return <Text style={styles.userText}>{message.text}</Text>;
+    }
+
+    const before = message.text.slice(0, index);
+    const match = message.text.slice(index, index + phrase.length);
+    const after = message.text.slice(index + phrase.length);
+
+    return (
+      <Text style={styles.userText}>
+        {before}
+        <Text
+          style={styles.inlineError}
+          onPress={() => setSelectedCorrection(message.correction || null)}
+        >
+          {match}
+        </Text>
+        {after}
+      </Text>
+    );
+  };
 
   const renderMessage = ({ item: message }: { item: Message }) => {
     if (message.role === "ai") {
@@ -215,9 +286,8 @@ export default function FreeTalkScreen() {
     return (
       <View style={styles.userWrap}>
         <View style={styles.userBubble}>
-          <Text style={styles.userText}>{message.text}</Text>
+          {renderCorrectableText(message)}
         </View>
-        {message.correction && <CorrectionBadge {...message.correction} />}
       </View>
     );
   };
@@ -243,11 +313,11 @@ export default function FreeTalkScreen() {
           >
             <Ionicons name="arrow-back" size={18} color={colors.text} />
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text variant="subtitle">Free Talk</Text>
-            <Text variant="caption">Open practice - AI still corrects you</Text>
+          <View style={styles.headerTitle}>
+            <Text variant="subtitle" numberOfLines={1}>Free Talk</Text>
+            <Text variant="caption" numberOfLines={1}>Open practice - AI still corrects you</Text>
           </View>
-          <Pressable onPress={() => router.push("/freetalk/summary")} style={styles.end}>
+          <Pressable onPress={handleEndTalk} style={styles.end}>
             <Text style={styles.endText}>End talk</Text>
             <Ionicons name="flag" size={13} color="#fff" />
           </Pressable>
@@ -288,7 +358,7 @@ export default function FreeTalkScreen() {
           )}
         </View>
 
-        <View style={styles.composer}>
+        {!selectedCorrection && <View style={styles.composer}>
           {inputType === "text" ? (
             <View style={styles.inputRow}>
               <TextInput
@@ -339,7 +409,13 @@ export default function FreeTalkScreen() {
               )}
             </View>
           )}
-        </View>
+        </View>}
+
+        <CorrectionSheet
+          correction={selectedCorrection}
+          visible={Boolean(selectedCorrection)}
+          onClose={() => setSelectedCorrection(null)}
+        />
       </KeyboardWrapper>
     </Screen>
   );
@@ -357,6 +433,10 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
   },
+  headerTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
   back: {
     width: 40,
     height: 40,
@@ -368,6 +448,7 @@ const styles = StyleSheet.create({
   end: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: 5,
     borderRadius: 999,
     backgroundColor: colors.primary,
@@ -432,6 +513,15 @@ const styles = StyleSheet.create({
   },
   userText: {
     color: "#fff",
+  },
+  inlineError: {
+    color: "#dbeafe",
+    backgroundColor: "rgba(219,234,254,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.42)",
+    borderRadius: 6,
+    fontWeight: "900",
+    textDecorationLine: "none",
   },
   composer: {
     gap: 10,

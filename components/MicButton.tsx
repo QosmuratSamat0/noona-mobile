@@ -23,7 +23,7 @@ export function MicButton({
   const pulse = useRef(new Animated.Value(1)).current;
   const panX = useRef(new Animated.Value(0)).current;
   const dotOpacity = useRef(new Animated.Value(1)).current;
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Track if we cancelled during the current drag session
   const hasCancelled = useRef(false);

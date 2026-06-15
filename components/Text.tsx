@@ -1,15 +1,15 @@
 import { ReactNode } from "react";
-import { StyleSheet, StyleProp, Text as RNText, TextStyle } from "react-native";
+import { StyleSheet, StyleProp, Text as RNText, TextProps, TextStyle } from "react-native";
 import { colors } from "@/constants/theme";
 
-type Props = {
+type Props = TextProps & {
   children: ReactNode;
   variant?: "title" | "subtitle" | "body" | "caption" | "eyebrow";
   style?: StyleProp<TextStyle>;
 };
 
-export function Text({ children, variant = "body", style }: Props) {
-  return <RNText style={[styles.base, styles[variant], style]}>{children}</RNText>;
+export function Text({ children, variant = "body", style, ...props }: Props) {
+  return <RNText style={[styles.base, styles[variant], style]} {...props}>{children}</RNText>;
 }
 
 const styles = StyleSheet.create({

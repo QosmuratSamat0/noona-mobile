@@ -1,39 +1,54 @@
-import { Tabs, router } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants/theme";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { api, getToken } from "@/utils/api";
+import { getValidToken } from "@/utils/api";
 
 export default function TabsLayout() {
-  const [loading, setLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
 
   useEffect(() => {
+    let cancelled = false;
+
     const checkAuth = async () => {
       try {
-        const token = await getToken();
+        const token = await getValidToken();
         if (!token) {
-          router.replace("/login");
+          if (!cancelled) {
+            setAuthStatus("unauthenticated");
+          }
           return;
         }
-        
-        // Verify token with backend
-        await api.get("/users/me");
-        setLoading(false);
+
+        if (!cancelled) {
+          setAuthStatus("authenticated");
+        }
       } catch (err) {
         console.log("Auth error", err);
-        router.replace("/login");
+        if (!cancelled) {
+          setAuthStatus("unauthenticated");
+        }
       }
     };
+
     checkAuth();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  if (loading) {
+  if (authStatus === "checking") {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
+  }
+
+  if (authStatus === "unauthenticated") {
+    return <Redirect href="/login" />;
   }
 
   return (

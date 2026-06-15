@@ -6,6 +6,18 @@ export type WSMessage = {
   data: any;
 };
 
+const buildWebSocketUrl = (apiUrl: string, token: string) => {
+  try {
+    const url = new URL(apiUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/ws/chat`;
+    url.searchParams.set("token", token);
+    return url.toString();
+  } catch {
+    return `${apiUrl.replace(/^http/, "ws").replace(/\/$/, "")}/ws/chat?token=${encodeURIComponent(token)}`;
+  }
+};
+
 export const useWebSocket = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<WSMessage[]>([]);
@@ -19,7 +31,7 @@ export const useWebSocket = () => {
       if (!token) return;
 
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
-      const wsUrl = apiUrl.replace("http", "ws") + `/ws/chat?token=${token}`;
+      const wsUrl = buildWebSocketUrl(apiUrl, token);
 
       ws.current = new WebSocket(wsUrl);
 
@@ -43,7 +55,11 @@ export const useWebSocket = () => {
       };
 
       ws.current.onerror = (error) => {
-        console.error("WebSocket error:", error);
+        console.error("WebSocket error", {
+          readyState: ws.current?.readyState,
+          url: wsUrl.replace(/token=[^&]+/, "token=<hidden>"),
+          type: (error as any)?.type || "error",
+        });
       };
     } catch (err) {
       console.error("WebSocket connection failed", err);

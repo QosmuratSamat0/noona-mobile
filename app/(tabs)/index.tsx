@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,117 +7,297 @@ import { Screen } from "@/components/Screen";
 import { Text } from "@/components/Text";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
-import { StatPill } from "@/components/StatPill";
 import { colors, radius, shadow } from "@/constants/theme";
-import { week } from "@/data/mock";
+import { api, isUnauthorizedError, removeToken } from "@/utils/api";
+
+type AnalysisSummary = {
+  focus?: string;
+  reason?: string;
+  next_steps?: string[];
+  next_recommendation?: string;
+  top_mistakes?: Array<{
+    title: string;
+    message?: string;
+    total_count?: number;
+    recent_count?: number;
+  }>;
+  vocabulary?: {
+    total_words?: number;
+  };
+  skill_progress?: {
+    total_results?: number;
+    average_score?: number;
+  };
+  activity?: {
+    current_streak?: number;
+    longest_streak?: number;
+    sessions_count?: number;
+    active_days?: number;
+  };
+  daily?: {
+    total_results?: number;
+    total_words?: number;
+    mistakes_count?: number;
+    avg_score?: number;
+    main_weak_point?: string;
+    summary?: string;
+    next_step?: string;
+  };
+};
+
+type UserProfile = {
+  name?: string;
+};
+
+const todayLabel = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+}).format(new Date());
+
+const greeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+};
 
 export default function HomeScreen() {
+  const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHome = async () => {
+      setLoading(true);
+      try {
+        const [analysisResult, userResult] = await Promise.allSettled([
+          api.get("/analysis/me"),
+          api.get("/users/me"),
+        ]);
+
+        if (cancelled) return;
+
+        if (analysisResult.status === "fulfilled") {
+          setAnalysis(analysisResult.value.data || null);
+        } else {
+          if (isUnauthorizedError(analysisResult.reason)) {
+            await removeToken();
+            router.replace("/login");
+            return;
+          }
+          console.error("Failed to load home analysis", analysisResult.reason);
+        }
+
+        if (userResult.status === "fulfilled") {
+          setUser(userResult.value.data || null);
+        } else {
+          if (isUnauthorizedError(userResult.reason)) {
+            await removeToken();
+            router.replace("/login");
+            return;
+          }
+          console.error("Failed to load home user", userResult.reason);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadHome();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const today = analysis?.daily;
+  const streak = analysis?.activity?.current_streak ?? 0;
+  const focus = today?.main_weak_point || analysis?.focus || "";
+  const summary = today?.summary || analysis?.reason || "";
+  const score = today?.avg_score ?? 0;
+  const sessions = today?.total_results ?? 0;
+  const words = today?.total_words ?? 0;
+  const fixes = today?.mistakes_count ?? 0;
+  const topMistake = analysis?.top_mistakes?.[0];
+  const hasPracticeToday = sessions > 0 || words > 0 || fixes > 0;
+
+  const nextAction = useMemo(() => {
+    if (topMistake?.title) {
+      return {
+        label: "Next best action",
+        title: `Practice ${topMistake.title}`,
+        body: analysis?.next_recommendation || topMistake.message || "Do one short answer using this pattern.",
+        time: "3 min",
+        button: "Start practice",
+        route: "/lesson/practice" as const,
+      };
+    }
+
+    if (!hasPracticeToday) {
+      return {
+        label: "Today",
+        title: "Start today's practice",
+        body: analysis?.next_recommendation || "Record one answer so Noona can build your real daily summary.",
+        time: "2 min",
+        button: "Choose mode",
+        route: "/lessons" as const,
+      };
+    }
+
+    return {
+      label: "Next best action",
+      title: focus || "Build a longer answer",
+      body: analysis?.next_recommendation || today?.next_step || "Record one longer answer and compare your score.",
+      time: "3 min",
+      button: "Continue",
+      route: "/lessons" as const,
+    };
+  }, [analysis, focus, hasPracticeToday, today?.next_step, topMistake]);
+
+  const openNextAction = () => {
+    if (nextAction.route === "/lesson/practice" && topMistake?.title) {
+      router.push({
+        pathname: "/lesson/practice",
+        params: {
+          pattern: topMistake.title,
+          reason: topMistake.message || analysis?.next_recommendation || "",
+        },
+      });
+      return;
+    }
+    router.push(nextAction.route);
+  };
+
+  if (loading) {
+    return (
+      <Screen>
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.primary} />
+          <Text variant="caption">Loading today...</Text>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <View style={styles.header}>
         <View>
-          <Text variant="caption">Good morning</Text>
-          <Text variant="title">Ayan</Text>
+          <Text variant="caption">{greeting()}</Text>
+          <Text variant="title">{user?.name || "Noona learner"}</Text>
         </View>
-        <View style={styles.streak}>
+        <Pressable onPress={() => router.push("/progress")} style={styles.streak}>
           <Ionicons name="flame" size={16} color={colors.orange} />
-          <Text style={styles.streakText}>5</Text>
-        </View>
+          <Text style={styles.streakText}>{streak}</Text>
+        </Pressable>
       </View>
 
       <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.hero}>
-        <View style={styles.heroBadge}>
-          <Ionicons name="sparkles" size={12} color="#fff" />
-          <Text style={styles.heroBadgeText}>Recommended for you</Text>
+        <View style={styles.heroTop}>
+          <View style={styles.heroBadge}>
+            <Ionicons name="sparkles" size={12} color="#fff" />
+            <Text style={styles.heroBadgeText}>{nextAction.label}</Text>
+          </View>
+          <Text style={styles.heroTime}>{nextAction.time}</Text>
         </View>
-        <Text style={styles.heroTitle}>Past tense in everyday talk</Text>
-        <Text style={styles.heroSub}>Based on mistakes from your Free Talk</Text>
-        <View style={styles.tags}>
-          {["past tense", "articles", "word order"].map((tag) => (
-            <View key={tag} style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
-        </View>
-        <View style={styles.heroMeta}>
-          <Text style={styles.heroMetaText}>3 short exercises</Text>
-          <Text style={styles.heroMetaText}>Not started</Text>
-        </View>
-        <Button variant="secondary" onPress={() => router.push("/lesson/start")} style={styles.heroButton}>
-          Start Lesson
+        <Text style={styles.heroTitle}>{nextAction.title}</Text>
+        <Text style={styles.heroSub}>{nextAction.body}</Text>
+        <Button
+          variant="secondary"
+          onPress={openNextAction}
+          style={styles.heroButton}
+        >
+          {nextAction.button}
         </Button>
       </LinearGradient>
 
-      <View style={styles.stats}>
-        <StatPill value="5" label="Day streak" />
-        <StatPill value="0/3" label="Exercises" />
-        <StatPill value="0" label="Words" />
+      <View style={styles.metrics}>
+        <MetricTile value={String(sessions)} label="Answers" icon="radio-outline" color={colors.primary} />
+        <MetricTile value={String(words)} label="Words" icon="chatbox-outline" color={colors.green} />
+        <MetricTile value={String(fixes)} label="Fixes" icon="construct-outline" color={colors.orange} />
       </View>
 
-      <Card>
-        <View style={styles.sectionRow}>
-          <Text variant="subtitle">This week</Text>
-          <Pressable onPress={() => router.push("/lessons")}>
-            <Text style={styles.link}>View all</Text>
+      <Card style={styles.universalSummary}>
+        <View style={styles.summaryTop}>
+          <View>
+            <Text variant="eyebrow" style={{ color: colors.primary }}>Today snapshot</Text>
+            <Text variant="subtitle" style={styles.summaryTitle}>Today, {todayLabel}</Text>
+          </View>
+          <Pressable onPress={() => router.push("/progress")} style={styles.roundLink}>
+            <Ionicons name="arrow-forward" size={18} color={colors.primary} />
           </Pressable>
         </View>
-        <View style={styles.weekRow}>
-          {week.map((item, index) => (
-            <View key={`${item.day}-${index}`} style={styles.weekItem}>
-              <Text variant="caption">{item.day}</Text>
-              <View
-                style={[
-                  styles.dayCircle,
-                  item.done && styles.dayDone,
-                  item.missed && styles.dayMissed,
-                  item.today && styles.dayToday,
-                ]}
-              >
-                {item.done ? (
-                  <Ionicons name="checkmark" size={15} color="#fff" />
-                ) : (
-                  <Text style={[styles.dayText, item.today && styles.dayTextToday]}>{index + 1}</Text>
-                )}
-              </View>
-            </View>
-          ))}
-        </View>
-      </Card>
 
-      <Card style={styles.callout}>
-        <View style={styles.quickIcon}>
-          <Ionicons name="flash" size={20} color={colors.orange} />
+        <View style={styles.summaryBody}>
+          <View style={styles.scoreRing}>
+            <Text style={styles.scoreValue}>{score}</Text>
+            <Text style={styles.scoreLabel}>score</Text>
+          </View>
+          <View style={styles.summaryCopy}>
+            <Text style={styles.focusLabel}>Main focus</Text>
+            <Text style={styles.focusValue} numberOfLines={1}>
+              {focus || (hasPracticeToday ? "Keep speaking daily" : "No practice yet today")}
+            </Text>
+            <Text variant="caption" numberOfLines={2}>
+              {summary || "Your real daily summary will appear after your first practice today."}
+            </Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.orangeEyebrow}>Quick fix</Text>
-          <Text variant="subtitle">Practice past tense</Text>
-          <Text variant="caption">Your top weak point this week</Text>
-        </View>
-        <Pressable onPress={() => router.push("/lesson/practice")} style={styles.roundLink}>
-          <Ionicons name="arrow-forward" size={18} color={colors.primary} />
-        </Pressable>
-      </Card>
 
-      <Card style={styles.callout}>
-        <View style={styles.talkIcon}>
-          <Ionicons name="chatbubble-ellipses" size={20} color={colors.primary} />
+        <View style={styles.summaryProgress}>
+          <View style={[styles.summaryProgressFill, { width: `${Math.max(0, Math.min(score, 100))}%` }]} />
         </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="subtitle">Want to just talk?</Text>
-          <Text variant="caption">Talk first. Fix patterns after.</Text>
+
+        <View style={styles.summaryChips}>
+          <View style={styles.summaryChip}>
+            <Ionicons name="calendar-clear-outline" size={14} color={colors.primary} />
+            <Text style={styles.summaryChipText}>{sessions} answers today</Text>
+          </View>
+          <View style={[styles.summaryChip, { backgroundColor: colors.orangeLight }]}>
+            <Ionicons name="flash-outline" size={14} color={colors.orange} />
+            <Text style={[styles.summaryChipText, { color: "#9a3412" }]}>{fixes} fixes today</Text>
+          </View>
         </View>
-        <Button onPress={() => router.push("/freetalk")} style={styles.smallButton}>
-          Free Talk
-        </Button>
       </Card>
     </Screen>
   );
 }
 
+function MetricTile({
+  value,
+  label,
+  icon,
+  color,
+}: {
+  value: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}) {
+  return (
+    <View style={styles.metricTile}>
+      <View style={[styles.metricIcon, { backgroundColor: `${color}18` }]}>
+        <Ionicons name={icon} size={15} color={color} />
+      </View>
+      <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.metricLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -133,12 +314,17 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   streakText: {
-    fontWeight: "800",
+    fontWeight: "900",
   },
   hero: {
     borderRadius: radius.xl,
     padding: 20,
     overflow: "hidden",
+  },
+  heroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   heroBadge: {
     alignSelf: "flex-start",
@@ -153,154 +339,163 @@ const styles = StyleSheet.create({
   heroBadgeText: {
     color: "#fff",
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase",
+  },
+  heroTime: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
   },
   heroTitle: {
     marginTop: 14,
     color: "#fff",
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "800",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "900",
   },
   heroSub: {
-    marginTop: 4,
+    marginTop: 5,
     color: "rgba(255,255,255,0.82)",
-    fontSize: 14,
-  },
-  tags: {
-    marginTop: 14,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-  },
-  tag: {
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  tagText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  progressTrack: {
-    marginTop: 18,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
-  progressFill: {
-    width: "8%",
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: "#fff",
-  },
-  heroMeta: {
-    marginTop: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  heroMetaText: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 11,
+    fontSize: 13,
+    lineHeight: 19,
   },
   heroButton: {
     marginTop: 16,
     backgroundColor: "#fff",
   },
-  stats: {
+  metrics: {
     flexDirection: "row",
     gap: 10,
   },
-  sectionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  link: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  weekRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  weekItem: {
-    alignItems: "center",
-    gap: 7,
-  },
-  dayCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  metricTile: {
+    flex: 1,
+    minHeight: 112,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    padding: 12,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...shadow,
   },
-  dayDone: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  metricIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
   },
-  dayMissed: {
-    backgroundColor: "#f1f0f7",
+  metricValue: {
+    color: colors.text,
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: "900",
   },
-  dayToday: {
-    backgroundColor: colors.primaryLight,
-    borderColor: colors.primary,
-    borderWidth: 2,
-  },
-  dayText: {
+  metricLabel: {
+    marginTop: 3,
     color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textAlign: "center",
   },
-  dayTextToday: {
-    color: colors.primary,
+  universalSummary: {
+    gap: 15,
   },
-  callout: {
+  summaryTop: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
   },
-  quickIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.orangeLight,
-  },
-  talkIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primaryLight,
-  },
-  orangeEyebrow: {
-    color: colors.orange,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+  summaryTitle: {
+    marginTop: 3,
   },
   roundLink: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryLight,
   },
-  smallButton: {
-    minHeight: 38,
-    paddingHorizontal: 14,
+  summaryBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  scoreRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 7,
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scoreValue: {
+    color: "#fff",
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "900",
+  },
+  scoreLabel: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 9,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  summaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  focusLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  focusValue: {
+    marginTop: 3,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  summaryProgress: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#f0eef8",
+    overflow: "hidden",
+  },
+  summaryProgressFill: {
+    width: "68%",
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: colors.green,
+  },
+  summaryChips: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  summaryChip: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 17,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 8,
+  },
+  summaryChipText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "900",
   },
 });
