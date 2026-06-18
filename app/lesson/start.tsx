@@ -43,10 +43,18 @@ const modes = [
 ];
 
 export default function LessonStartScreen() {
+  const handleClose = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)/lessons");
+  };
+
   return (
     <Screen>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.close}>
+        <Pressable onPress={handleClose} style={styles.close}>
           <Ionicons name="close" size={18} color={colors.text} />
         </Pressable>
         <Text variant="subtitle">Choose a mode</Text>

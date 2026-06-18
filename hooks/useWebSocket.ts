@@ -41,11 +41,19 @@ export const useWebSocket = () => {
       };
 
       ws.current.onmessage = (event) => {
-        try {
-          const msg: WSMessage = JSON.parse(event.data);
-          setMessages(prev => [...prev, msg]);
-        } catch (err) {
-          console.error("Failed to parse WS message", err);
+        const lines = String(event.data).split("\n").map((line) => line.trim()).filter(Boolean);
+        const nextMessages: WSMessage[] = [];
+
+        for (const line of lines) {
+          try {
+            nextMessages.push(JSON.parse(line));
+          } catch (err) {
+            console.error("Failed to parse WS message", err);
+          }
+        }
+
+        if (nextMessages.length) {
+          setMessages(prev => [...prev, ...nextMessages]);
         }
       };
 

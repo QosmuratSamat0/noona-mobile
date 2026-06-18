@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Pressable, StyleSheet, TextInput, View, FlatList, KeyboardAvoidingView, Platform } from "react-native";
+import { Pressable, StyleSheet, TextInput, View, FlatList, KeyboardAvoidingView, Platform, Modal, ScrollView } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
@@ -24,6 +24,41 @@ type Message = {
   };
 };
 
+type PersistedMessage = {
+  id: string;
+  role: "ai" | "user";
+  content: string;
+};
+
+const greetingMessage: Message = { id: "greeting", role: "ai", text: "Hey! What did you do today?" };
+
+const talkTopics = [
+  { title: "Travel", prompt: "Let's talk about travel. What place do you want to visit next, and why?" },
+  { title: "Food", prompt: "Let's talk about food. What dish could you eat again and again?" },
+  { title: "Work", prompt: "Let's talk about work. What kind of work feels interesting to you?" },
+  { title: "Movies", prompt: "Let's talk about movies. What movie stayed in your mind recently?" },
+  { title: "Music", prompt: "Let's talk about music. What song matches your mood today?" },
+  { title: "Technology", prompt: "Let's talk about technology. What app or device do you use every day?" },
+  { title: "Family", prompt: "Let's talk about family. Who gives you good advice?" },
+  { title: "Friends", prompt: "Let's talk about friends. What makes someone a good friend?" },
+  { title: "Health", prompt: "Let's talk about health. What habit helps you feel better?" },
+  { title: "Sports", prompt: "Let's talk about sports. What sport do you like watching or playing?" },
+  { title: "Books", prompt: "Let's talk about books. What story or idea changed how you think?" },
+  { title: "Business", prompt: "Let's talk about business. What small business idea sounds exciting?" },
+  { title: "Education", prompt: "Let's talk about education. What skill do you want to learn faster?" },
+  { title: "Dreams", prompt: "Let's talk about dreams. What future goal feels important to you?" },
+  { title: "Culture", prompt: "Let's talk about culture. What tradition do you like?" },
+  { title: "Daily life", prompt: "Let's talk about daily life. What part of your day do you enjoy most?" },
+  { title: "Money", prompt: "Let's talk about money. What do you think is worth spending money on?" },
+  { title: "Nature", prompt: "Let's talk about nature. What kind of weather makes you feel good?" },
+];
+
+const mapPersistedMessage = (message: PersistedMessage): Message => ({
+  id: message.id,
+  role: message.role,
+  text: message.content,
+});
+
 export default function FreeTalkScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -32,6 +67,8 @@ export default function FreeTalkScreen() {
   const [playedJobs, setPlayedJobs] = useState<Set<string>>(new Set());
   const [inputType, setInputType] = useState<"voice" | "text">("voice");
   const [selectedCorrection, setSelectedCorrection] = useState<CorrectionDetail | null>(null);
+  const [topicSheetOpen, setTopicSheetOpen] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
   const { messages: wsMessages } = useWebSocket();
   const { isRecording, startRecording, stopRecording, playAudio } = useAudio();
@@ -44,12 +81,12 @@ export default function FreeTalkScreen() {
     const initSession = async () => {
       try {
         const res = await api.post("/sessions");
-        setSessionID(res.data.id);
-        
-        // Add greeting message
-        setMessages([
-          { id: "greeting", role: "ai", text: "Hey! What did you do today?" }
-        ]);
+        const nextSessionID = res.data.id;
+        setSessionID(nextSessionID);
+
+        const history = await api.get(`/sessions/${nextSessionID}/messages`);
+        const savedMessages = Array.isArray(history.data) ? history.data.map(mapPersistedMessage) : [];
+        setMessages(savedMessages.length ? savedMessages : [greetingMessage]);
 
         // Pre-request microphone permission to avoid browser gesture blocks/lag later
         await Audio.requestPermissionsAsync().catch(() => {});
@@ -208,6 +245,21 @@ export default function FreeTalkScreen() {
     await stopRecording();
   };
 
+  const chooseTopic = (topic: (typeof talkTopics)[number]) => {
+    setSelectedTopic(topic.title);
+    setTopicSheetOpen(false);
+    isAtBottomRef.current = true;
+    setMessages((items) => [
+      ...items,
+      {
+        id: `topic-${Date.now()}`,
+        role: "ai",
+        text: topic.prompt,
+      },
+    ]);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+  };
+
   const handleEndTalk = () => {
     if (!sessionID) {
       router.push("/freetalk/summary");
@@ -359,8 +411,20 @@ export default function FreeTalkScreen() {
         </View>
 
         {!selectedCorrection && <View style={styles.composer}>
+          {selectedTopic && (
+            <View style={styles.topicBar}>
+              <Ionicons name="chatbubbles-outline" size={15} color={colors.primary} />
+              <Text style={styles.topicBarText} numberOfLines={1}>{selectedTopic}</Text>
+              <Pressable onPress={() => setSelectedTopic(null)} style={styles.topicClear}>
+                <Ionicons name="close" size={14} color={colors.muted} />
+              </Pressable>
+            </View>
+          )}
           {inputType === "text" ? (
             <View style={styles.inputRow}>
+              <Pressable onPress={() => setTopicSheetOpen(true)} style={styles.topicBtn}>
+                <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
+              </Pressable>
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
@@ -382,8 +446,14 @@ export default function FreeTalkScreen() {
             </View>
           ) : (
             <View style={styles.voiceRow}>
-              {/* Balances the switch button on the right */}
-              {!isRecording && <View style={{ width: 44 }} />}
+              {!isRecording ? (
+                <Pressable onPress={() => setTopicSheetOpen(true)} style={styles.topicBtnWide}>
+                  <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+                  <Text style={styles.topicBtnText}>Choose topic</Text>
+                </Pressable>
+              ) : (
+                <View style={{ width: 118 }} />
+              )}
               
               <View style={styles.voiceCenter}>
                 <MicButton 
@@ -416,6 +486,40 @@ export default function FreeTalkScreen() {
           visible={Boolean(selectedCorrection)}
           onClose={() => setSelectedCorrection(null)}
         />
+
+        <Modal
+          visible={topicSheetOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTopicSheetOpen(false)}
+        >
+          <Pressable style={styles.topicOverlay} onPress={() => setTopicSheetOpen(false)}>
+            <Pressable style={styles.topicSheet}>
+              <View style={styles.topicSheetHeader}>
+                <View>
+                  <Text variant="subtitle">Choose topic</Text>
+                  <Text variant="caption">Pick one and start speaking.</Text>
+                </View>
+                <Pressable onPress={() => setTopicSheetOpen(false)} style={styles.topicClose}>
+                  <Ionicons name="close" size={18} color={colors.text} />
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.topicGrid}>
+                {talkTopics.map((topic) => (
+                  <Pressable
+                    key={topic.title}
+                    onPress={() => chooseTopic(topic)}
+                    style={[styles.topicOption, selectedTopic === topic.title && styles.topicOptionActive]}
+                  >
+                    <Text style={[styles.topicOptionText, selectedTopic === topic.title && styles.topicOptionTextActive]}>
+                      {topic.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </KeyboardWrapper>
     </Screen>
   );
@@ -536,6 +640,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  topicBar: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.primaryLight,
+    paddingLeft: 11,
+    paddingRight: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  topicBarText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  topicClear: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
+  },
   input: {
     flex: 1,
     height: 44,
@@ -572,6 +703,87 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#f1f0f7",
+  },
+  topicBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f1f0f7",
+  },
+  topicBtnWide: {
+    width: 118,
+    height: 44,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#f1f0f7",
+  },
+  topicBtnText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  topicOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15,23,42,0.28)",
+  },
+  topicSheet: {
+    maxHeight: "72%",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: colors.card,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+  topicSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+  topicClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f1f0f7",
+  },
+  topicGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingBottom: 10,
+  },
+  topicOption: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#faf9ff",
+  },
+  topicOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  topicOptionText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  topicOptionTextActive: {
+    color: colors.primary,
   },
   finish: {
     textAlign: "center",

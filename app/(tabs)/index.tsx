@@ -116,16 +116,27 @@ export default function HomeScreen() {
 
   const today = analysis?.daily;
   const streak = analysis?.activity?.current_streak ?? 0;
-  const focus = today?.main_weak_point || analysis?.focus || "";
-  const summary = today?.summary || analysis?.reason || "";
   const score = today?.avg_score ?? 0;
   const sessions = today?.total_results ?? 0;
   const words = today?.total_words ?? 0;
   const fixes = today?.mistakes_count ?? 0;
-  const topMistake = analysis?.top_mistakes?.[0];
   const hasPracticeToday = sessions > 0 || words > 0 || fixes > 0;
+  const focus = hasPracticeToday ? today?.main_weak_point || analysis?.focus || "" : "";
+  const summary = hasPracticeToday ? today?.summary || analysis?.reason || "" : "";
+  const topMistake = hasPracticeToday ? analysis?.top_mistakes?.[0] : undefined;
 
   const nextAction = useMemo(() => {
+    if (!hasPracticeToday) {
+      return {
+        label: "Today",
+        title: "Start today's practice",
+        body: "Record one answer so Noona can build your real daily summary.",
+        time: "2 min",
+        button: "Choose mode",
+        route: "/lessons" as const,
+      };
+    }
+
     if (topMistake?.title) {
       return {
         label: "Next best action",
@@ -134,17 +145,6 @@ export default function HomeScreen() {
         time: "3 min",
         button: "Start practice",
         route: "/lesson/practice" as const,
-      };
-    }
-
-    if (!hasPracticeToday) {
-      return {
-        label: "Today",
-        title: "Start today's practice",
-        body: analysis?.next_recommendation || "Record one answer so Noona can build your real daily summary.",
-        time: "2 min",
-        button: "Choose mode",
-        route: "/lessons" as const,
       };
     }
 

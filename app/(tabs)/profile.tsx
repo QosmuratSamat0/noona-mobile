@@ -120,6 +120,21 @@ export default function ProfileScreen() {
         ))}
       </Card>
 
+      {user?.role === "admin" ? (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <Pressable style={styles.row} onPress={() => router.push("/admin")}>
+            <View style={styles.rowIcon}>
+              <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="caption">Admin</Text>
+              <Text style={styles.value}>Users, providers, speech, logs</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color={colors.muted} />
+          </Pressable>
+        </Card>
+      ) : null}
+
       <Card style={{ padding: 16 }}>
         <Pressable onPress={handleLogout} style={[styles.logoutButton, { marginTop: 0 }]}>
           <Text style={styles.logoutText}>Logout</Text>

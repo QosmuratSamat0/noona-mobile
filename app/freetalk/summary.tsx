@@ -132,10 +132,18 @@ export default function TalkSummaryScreen() {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }, [startedAt]);
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)");
+  };
+
   return (
     <Screen>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
+        <Pressable onPress={handleBack} style={styles.back}>
           <Ionicons name="arrow-back" size={18} color={colors.text} />
         </Pressable>
         <View style={{ flex: 1 }}>
