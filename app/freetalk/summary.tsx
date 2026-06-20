@@ -97,8 +97,16 @@ export default function TalkSummaryScreen() {
           return;
         }
 
-        const response = await api.get(`/sessions/${nextSessionID}/messages`);
-        setMessages(Array.isArray(response.data) ? response.data : []);
+        try {
+          const response = await api.get(`/sessions/${nextSessionID}/messages`);
+          setMessages(Array.isArray(response.data) ? response.data : []);
+        } catch (historyErr) {
+          console.error("Failed to load talk messages", historyErr);
+          setMessages([]);
+          if (!paramCorrections.length && !cachedCorrections.length) {
+            setError("Could not load this talk summary.");
+          }
+        }
       } catch (err) {
         console.error("Failed to load talk summary", err);
         setError("Could not load this talk summary.");

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Pressable, StyleSheet, TextInput, View, FlatList, KeyboardAvoidingView, Platform, Modal, ScrollView } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { Text } from "@/components/Text";
 import { MicButton } from "@/components/MicButton";
-import { changedPhrase, CorrectionDetail, CorrectionSheet } from "@/components/CorrectionBadge";
+import { CorrectionDetail, CorrectionSheet } from "@/components/CorrectionBadge";
+import { NoonaAvatar } from "@/components/noona";
 import { colors } from "@/constants/theme";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
@@ -28,6 +29,11 @@ type PersistedMessage = {
   id: string;
   role: "ai" | "user";
   content: string;
+  feedback?: {
+    original?: string;
+    corrected_text?: string;
+    reason?: string;
+  };
 };
 
 const greetingMessage: Message = { id: "greeting", role: "ai", text: "Hey! What did you do today?" };
@@ -57,9 +63,20 @@ const mapPersistedMessage = (message: PersistedMessage): Message => ({
   id: message.id,
   role: message.role,
   text: message.content,
+  correction: message.feedback?.original && message.feedback?.corrected_text && message.feedback.corrected_text !== message.feedback.original
+    ? {
+        pattern: "grammar",
+        original: message.feedback.original,
+        better: message.feedback.corrected_text,
+        why: message.feedback.reason || "Use the better version in your next answer.",
+      }
+    : undefined,
 });
 
 export default function FreeTalkScreen() {
+  const params = useLocalSearchParams<{ topic?: string; prompt?: string }>();
+  const initialTopic = Array.isArray(params.topic) ? params.topic[0] : params.topic;
+  const initialPrompt = Array.isArray(params.prompt) ? params.prompt[0] : params.prompt;
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [sessionID, setSessionID] = useState<string | null>(null);
@@ -68,7 +85,7 @@ export default function FreeTalkScreen() {
   const [inputType, setInputType] = useState<"voice" | "text">("voice");
   const [selectedCorrection, setSelectedCorrection] = useState<CorrectionDetail | null>(null);
   const [topicSheetOpen, setTopicSheetOpen] = useState(false);
-  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(initialTopic || null);
 
   const { messages: wsMessages } = useWebSocket();
   const { isRecording, startRecording, stopRecording, playAudio } = useAudio();
@@ -86,7 +103,10 @@ export default function FreeTalkScreen() {
 
         const history = await api.get(`/sessions/${nextSessionID}/messages`);
         const savedMessages = Array.isArray(history.data) ? history.data.map(mapPersistedMessage) : [];
-        setMessages(savedMessages.length ? savedMessages : [greetingMessage]);
+        const greeting = initialPrompt
+          ? { id: "greeting", role: "ai" as const, text: initialPrompt }
+          : greetingMessage;
+        setMessages(initialPrompt ? [...savedMessages, greeting] : savedMessages.length ? savedMessages : [greeting]);
 
         // Pre-request microphone permission to avoid browser gesture blocks/lag later
         await Audio.requestPermissionsAsync().catch(() => {});
@@ -95,7 +115,7 @@ export default function FreeTalkScreen() {
       }
     };
     initSession();
-  }, []);
+  }, [initialPrompt]);
 
   useEffect(() => {
     if (!currentJobId) return;
@@ -163,7 +183,10 @@ export default function FreeTalkScreen() {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
 
     try {
-      const res = await api.post(`/sessions/${sessionID}/messages`, { content: value });
+      const res = await api.post(`/sessions/${sessionID}/messages`, {
+        content: value,
+        selected_topic: selectedTopic || "",
+      });
       const { id, content, feedback, audio_url } = res.data;
       
       setMessages(prev => prev.map(m => {
@@ -228,6 +251,7 @@ export default function FreeTalkScreen() {
       
       formData.append('file', fileToUpload);
       formData.append('session_id', sessionID);
+      formData.append('selected_topic', selectedTopic || '');
 
       const response = await api.post('/audio/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -298,48 +322,30 @@ export default function FreeTalkScreen() {
 
 
   const renderCorrectableText = (message: Message) => {
-    if (!message.correction) {
-      return <Text style={styles.userText}>{message.text}</Text>;
-    }
-
-    const changed = changedPhrase(message.correction.original || message.text, message.correction.better);
-    const phrase = changed.wrong;
-    const index = phrase ? message.text.toLowerCase().indexOf(phrase.toLowerCase()) : -1;
-    if (index < 0) {
-      return <Text style={styles.userText}>{message.text}</Text>;
-    }
-
-    const before = message.text.slice(0, index);
-    const match = message.text.slice(index, index + phrase.length);
-    const after = message.text.slice(index + phrase.length);
-
-    return (
-      <Text style={styles.userText}>
-        {before}
-        <Text
-          style={styles.inlineError}
-          onPress={() => setSelectedCorrection(message.correction || null)}
-        >
-          {match}
-        </Text>
-        {after}
-      </Text>
-    );
+    return <Text style={styles.userText}>{message.text}</Text>;
   };
 
   const renderMessage = ({ item: message }: { item: Message }) => {
     if (message.role === "ai") {
       return (
-        <View style={styles.aiBubble}>
-          <Text>{message.text}</Text>
+        <View style={styles.aiRow}>
+          <NoonaAvatar size="sm" mood="happy" style={styles.aiAvatar} />
+          <View style={styles.aiBubble}>
+            <Text>{message.text}</Text>
+          </View>
         </View>
       );
     }
+    const hasCorrection = Boolean(message.correction);
     return (
       <View style={styles.userWrap}>
-        <View style={styles.userBubble}>
+        <Pressable
+          disabled={!hasCorrection}
+          onPress={() => setSelectedCorrection(message.correction || null)}
+          style={[styles.userBubble, hasCorrection && styles.userBubbleCorrectable]}
+        >
           {renderCorrectableText(message)}
-        </View>
+        </Pressable>
       </View>
     );
   };
@@ -596,7 +602,6 @@ const styles = StyleSheet.create({
   },
   aiBubble: {
     maxWidth: "82%",
-    alignSelf: "flex-start",
     borderRadius: 20,
     borderTopLeftRadius: 6,
     backgroundColor: colors.card,
@@ -615,17 +620,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
+  aiRow: {
+    maxWidth: "88%",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  aiAvatar: {
+    marginBottom: 1,
+  },
+  userBubbleCorrectable: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.55)",
+  },
   userText: {
     color: "#fff",
-  },
-  inlineError: {
-    color: "#dbeafe",
-    backgroundColor: "rgba(219,234,254,0.16)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.42)",
-    borderRadius: 6,
-    fontWeight: "900",
-    textDecorationLine: "none",
   },
   composer: {
     gap: 10,

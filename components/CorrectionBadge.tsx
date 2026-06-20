@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,59 +14,6 @@ type Correction = {
 
 export type CorrectionDetail = Correction;
 
-const words = (value: string) => value.trim().split(/\s+/).filter(Boolean);
-
-export const changedPhrase = (original: string, better: string) => {
-  const originalWords = words(original);
-  const betterWords = words(better);
-
-  if (originalWords.length > 4 && betterWords.length <= 3) {
-    return { wrong: "", correct: betterWords.join(" ") || better };
-  }
-
-  let start = 0;
-  while (
-    start < originalWords.length &&
-    start < betterWords.length &&
-    originalWords[start].toLowerCase() === betterWords[start].toLowerCase()
-  ) {
-    start += 1;
-  }
-
-  let endOriginal = originalWords.length - 1;
-  let endBetter = betterWords.length - 1;
-  while (
-    endOriginal >= start &&
-    endBetter >= start &&
-    originalWords[endOriginal].toLowerCase() === betterWords[endBetter].toLowerCase()
-  ) {
-    endOriginal -= 1;
-    endBetter -= 1;
-  }
-
-  return {
-    wrong: originalWords.slice(start, endOriginal + 1).join(" "),
-    correct: betterWords.slice(start, endBetter + 1).join(" ") || better,
-  };
-};
-
-const renderHighlightedSentence = (sentence: string, phrase: string, tone: "wrong" | "correct") => {
-  const index = phrase ? sentence.toLowerCase().indexOf(phrase.toLowerCase()) : -1;
-  if (index < 0) {
-    return <Text style={styles.sentenceText}>{sentence}</Text>;
-  }
-  const before = sentence.slice(0, index);
-  const match = sentence.slice(index, index + phrase.length);
-  const after = sentence.slice(index + phrase.length);
-  return (
-    <Text style={styles.sentenceText}>
-      {before}
-      <Text style={tone === "wrong" ? styles.highlightWrong : styles.highlightCorrect}>{match}</Text>
-      {after}
-    </Text>
-  );
-};
-
 export function CorrectionSheet({
   correction,
   visible,
@@ -78,10 +25,6 @@ export function CorrectionSheet({
 }) {
   const [tab, setTab] = useState<"grammar" | "pronunciation">("grammar");
   const insets = useSafeAreaInsets();
-  const changed = useMemo(
-    () => changedPhrase(correction?.original || "", correction?.better || ""),
-    [correction?.original, correction?.better],
-  );
 
   if (!correction) return null;
 
@@ -112,9 +55,9 @@ export function CorrectionSheet({
               {tab === "grammar" ? (
                 <View style={styles.panel}>
                   <Text variant="eyebrow" style={{ color: colors.primary }}>Grammar</Text>
-                  <View style={styles.sentenceBox}>
-                    <View style={styles.quoteLine} />
-                    {renderHighlightedSentence(correction.original, changed.wrong, "wrong")}
+                  <View style={styles.fullSentenceCard}>
+                    <Text variant="caption">Original</Text>
+                    <Text style={styles.originalSentence}>{correction.original}</Text>
                   </View>
 
                   <View style={styles.fixHeader}>
@@ -122,23 +65,16 @@ export function CorrectionSheet({
                       <Ionicons name="sparkles" size={18} color={colors.orange} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.fixHeadline}>Grammar fix</Text>
-                      <Text variant="caption">{changed.wrong ? "Change this part" : "Add the missing word"}</Text>
+                      <Text style={styles.fixHeadline}>Sentence correction</Text>
+                      <Text variant="caption">Correct the sentence without changing the meaning.</Text>
                     </View>
                   </View>
 
                   <View style={styles.fixCard}>
-                    <Text style={styles.fixTitle}>{correction.pattern === "grammar" ? "What to fix" : correction.pattern}</Text>
-                    <View style={styles.compareRow}>
-                      <View style={styles.compareCol}>
-                        <Text variant="caption">You said</Text>
-                        <Text style={styles.wrongText}>{changed.wrong || "missing word"}</Text>
-                      </View>
-                      <Ionicons name="arrow-forward" size={16} color={colors.muted} />
-                      <View style={styles.compareCol}>
-                        <Text variant="caption">Better</Text>
-                        <Text style={styles.correctText}>{changed.correct}</Text>
-                      </View>
+                    <Text style={styles.fixTitle}>{correction.pattern === "grammar" ? "Better sentence" : correction.pattern}</Text>
+                    <View style={styles.fullSentenceBlock}>
+                      <Text variant="caption">Better</Text>
+                      <Text style={styles.correctSentence}>{correction.better}</Text>
                     </View>
                     <View style={styles.ruleBox}>
                       <Ionicons name="bulb-outline" size={17} color={colors.orange} />
@@ -149,16 +85,16 @@ export function CorrectionSheet({
               ) : (
                 <View style={styles.panel}>
                   <Text variant="eyebrow" style={{ color: colors.primary }}>Pronunciation</Text>
-                  <View style={styles.sentenceBox}>
-                    <View style={styles.quoteLine} />
-                    {renderHighlightedSentence(correction.better, changed.correct, "correct")}
+                  <View style={styles.fullSentenceCard}>
+                    <Text variant="caption">Practice sentence</Text>
+                    <Text style={styles.correctSentence}>{correction.better}</Text>
                   </View>
                   <View style={styles.fixHeader}>
                     <Text style={styles.pronScore}>93%</Text>
                     <Text style={styles.pronHint}>Well done!</Text>
                   </View>
                   <View style={styles.fixCard}>
-                    <Text style={styles.fixTitle}>{changed.correct}</Text>
+                    <Text style={styles.fixTitle}>Say the full sentence</Text>
                     <View style={styles.phoneHeader}>
                       <Text style={styles.phoneHead}>Syllable</Text>
                       <Text style={styles.phoneHead}>Phone</Text>
@@ -170,7 +106,7 @@ export function CorrectionSheet({
                       { phone: "/ch/", feedback: "Sounds clear", color: colors.red },
                     ].map((row) => (
                       <View key={row.phone} style={styles.phoneRow}>
-                        <Text style={styles.phoneCell}>{changed.correct}</Text>
+                        <Text style={styles.phoneCell}>sentence</Text>
                         <Text style={styles.phoneCell}>{row.phone}</Text>
                         <Text style={[styles.phoneCell, { color: row.color }]}>{row.feedback}</Text>
                       </View>
@@ -188,14 +124,13 @@ export function CorrectionSheet({
 
 export function CorrectionBadge({ pattern, original, better, why }: Correction) {
   const [open, setOpen] = useState(false);
-  const changed = useMemo(() => changedPhrase(original, better), [original, better]);
 
   return (
     <View style={styles.wrap}>
       <Pressable onPress={() => setOpen(true)} style={styles.badge}>
         <Ionicons name="sparkles" size={12} color={colors.primary} />
         <Text style={styles.badgeText} numberOfLines={1}>
-          {changed.wrong || "missing word"} {"->"} {changed.correct}
+          View sentence correction
         </Text>
       </Pressable>
       <CorrectionSheet correction={{ pattern, original, better, why }} visible={open} onClose={() => setOpen(false)} />
@@ -323,6 +258,30 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 25,
     fontWeight: "700",
+  },
+  fullSentenceCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#f8fafc",
+    padding: 14,
+    gap: 6,
+  },
+  fullSentenceBlock: {
+    marginTop: 14,
+    gap: 6,
+  },
+  originalSentence: {
+    color: "#991b1b",
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "800",
+  },
+  correctSentence: {
+    color: "#047857",
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "800",
   },
   highlightWrong: {
     borderRadius: 6,

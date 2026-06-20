@@ -2,8 +2,9 @@ import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/constants/theme";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 import { getValidToken } from "@/utils/api";
+import { NoonaMascot } from "@/components/noona";
 
 export default function TabsLayout() {
   const [authStatus, setAuthStatus] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
@@ -42,7 +43,7 @@ export default function TabsLayout() {
   if (authStatus === "checking") {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <NoonaMascot variant="loading" size="lg" mood="neutral" />
       </View>
     );
   }

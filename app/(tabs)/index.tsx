@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { Text } from "@/components/Text";
@@ -65,6 +65,11 @@ export default function HomeScreen() {
   const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useFocusEffect(useCallback(() => {
+    setRefreshKey((value) => value + 1);
+  }, []));
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +117,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   const today = analysis?.daily;
   const streak = analysis?.activity?.current_streak ?? 0;

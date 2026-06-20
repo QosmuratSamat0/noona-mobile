@@ -50,13 +50,13 @@ const modes = [
   },
   {
     title: "Vocabulary Drill",
-    desc: "Use better words in short answers.",
-    meta: "Coming soon",
+    desc: "Learn words through meaning, context, and use.",
+    meta: "4 min",
     icon: "sparkles-outline",
     color: "#7c3aed",
     bg: "#f3e8ff",
-    to: "/lesson/session",
-    enabled: false,
+    to: "/lesson/vocabulary",
+    enabled: true,
   },
 ];
 

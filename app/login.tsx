@@ -1,8 +1,8 @@
 import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Text } from "@/components/Text";
+import { NoonaLogo, NoonaMascot } from "@/components/noona";
 import { TextInput, ActivityIndicator, Alert } from "react-native";
 import { useState, useEffect } from "react";
 import { api, getValidToken, setTokens } from "../utils/api";
@@ -187,7 +187,7 @@ export default function LoginScreen() {
     return (
       <View style={styles.page}>
         <StatusBar style="dark" />
-        <ActivityIndicator color="#614df2" size="large" />
+        <NoonaMascot variant="loading" size="lg" mood="neutral" />
       </View>
     );
   }
@@ -197,12 +197,7 @@ export default function LoginScreen() {
       <StatusBar style="dark" />
       <View style={styles.phone}>
         <View style={styles.topContent}>
-          <LinearGradient colors={["#745cff", "#614df2"]} style={styles.logo}>
-            <Text style={styles.logoText}>N</Text>
-          </LinearGradient>
-
-          <Text style={styles.title}>Noona</Text>
-          <Text style={styles.subtitle}>AI English Speaking Coach</Text>
+          <NoonaLogo variant="welcome" size="md" mood="happy" showTagline />
 
           <View style={styles.authBlock}>
             <View style={{ gap: 12, width: '100%' }}>
@@ -306,40 +301,9 @@ const styles = StyleSheet.create({
   topContent: {
     alignItems: "center",
   },
-  logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#614df2",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 5,
-  },
-  logoText: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  title: {
-    marginTop: 24,
-    color: "#071329",
-    fontSize: 25,
-    lineHeight: 30,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  subtitle: {
-    marginTop: 8,
-    color: "#60708a",
-    fontSize: 14,
-    textAlign: "center",
-  },
   authBlock: {
     width: "100%",
-    marginTop: 52,
+    marginTop: 36,
     gap: 14,
   },
   googleButton: {

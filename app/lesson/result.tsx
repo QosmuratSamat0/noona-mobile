@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
 import { Text } from "@/components/Text";
 import { Button } from "@/components/Button";
+import { NoonaEmptyState } from "@/components/noona";
 import { colors } from "@/constants/theme";
 import { api } from "@/utils/api";
 
@@ -143,18 +144,30 @@ export default function LessonResultScreen() {
     router.push({ pathname: "/lesson/summary", params: { result_id: result.result_id } });
   };
 
-  if (loading || !result) {
+  if (loading) {
     return (
       <Screen>
-        <Card style={styles.centerCard}>
-          <ActivityIndicator color={colors.primary} />
-          <Text variant="caption">{loading ? "Loading feedback..." : "No result yet."}</Text>
-          {!loading && (
-            <Button variant="outline" onPress={() => router.replace("/lesson/practice")}>
-              Back to quick fix
-            </Button>
-          )}
-        </Card>
+        <NoonaEmptyState
+          variant="loading"
+          mood="neutral"
+          title="Checking your feedback"
+          description="Noona is reviewing your answer."
+        />
+      </Screen>
+    );
+  }
+
+  if (!result) {
+    return (
+      <Screen>
+        <NoonaEmptyState
+          variant="empty"
+          mood="encouraging"
+          title="No result yet"
+          description="Complete a quick fix and Noona will show your feedback here."
+          actionLabel="Back to quick fix"
+          onAction={() => router.replace("/lesson/practice")}
+        />
       </Screen>
     );
   }
@@ -269,10 +282,6 @@ export default function LessonResultScreen() {
 }
 
 const styles = StyleSheet.create({
-  centerCard: {
-    alignItems: "center",
-    gap: 12,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",

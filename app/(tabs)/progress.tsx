@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/Card";
@@ -91,6 +91,30 @@ type ResultDetail = {
   next_steps?: string[];
 };
 
+type ChatSession = {
+  id: string;
+  created_at: string;
+};
+
+type ChatMessage = {
+  id: string;
+  role: "ai" | "user";
+  content: string;
+  created_at?: string;
+  feedback?: {
+    original?: string;
+    corrected_text?: string;
+    reason?: string;
+  };
+};
+
+type ChatCorrection = {
+  original: string;
+  better: string;
+  why: string;
+  created_at: string;
+};
+
 const today = new Date();
 const currentYear = today.getFullYear();
 const currentMonth = today.getMonth();
@@ -103,6 +127,14 @@ const dateKey = (day: number) => {
   const month = String(currentMonth + 1).padStart(2, "0");
   const value = String(day).padStart(2, "0");
   return `${currentYear}-${month}-${value}`;
+};
+
+const localDateKey = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 };
 
 const dayFromDateKey = (value: string) => {
@@ -145,10 +177,6 @@ const aggregateDaily = (sessions: DailySession[], label: string): DailySession =
     next_step: practiced.find((session) => session.next_step)?.next_step || "",
   };
 };
-
-const plural = (count: number, singular: string, pluralValue = `${singular}s`) => (
-  count === 1 ? singular : pluralValue
-);
 
 const scoreTone = (score: number) => {
   if (score >= 85) return "Great progress";
@@ -205,9 +233,16 @@ export default function ProgressScreen() {
   const [activity, setActivity] = useState<ActivityResponse | null>(null);
   const [selectedDaily, setSelectedDaily] = useState<DailySession | null>(null);
   const [selectedResult, setSelectedResult] = useState<ResultDetail | null>(null);
+  const [selectedChatCorrection, setSelectedChatCorrection] = useState<ChatCorrection | null>(null);
   const [selectionMode, setSelectionMode] = useState<"day" | "week" | "month">("day");
   const [rangeStart, setRangeStart] = useState(currentDay);
   const [rangeEnd, setRangeEnd] = useState<number | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useFocusEffect(useCallback(() => {
+    setRefreshKey((value) => value + 1);
+  }, []));
 
   useEffect(() => {
     let cancelled = false;
@@ -255,7 +290,7 @@ export default function ProgressScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   const selectedEnd = rangeEnd ?? rangeStart;
   const isRange = selectedEnd !== rangeStart;
@@ -286,6 +321,7 @@ export default function ProgressScreen() {
         const sessions = responses.filter(Boolean) as DailySession[];
         const nextDaily = aggregateDaily(sessions, selectedLabel);
         let nextResult: ResultDetail | null = null;
+        let nextChatCorrection: ChatCorrection | null = null;
         const sessionIDs = sessions.map((session) => session.session_id).filter(Boolean) as string[];
         if (sessionIDs.length) {
           const resultLists = await Promise.all(
@@ -314,9 +350,47 @@ export default function ProgressScreen() {
               });
           }
         }
+        const selectedDateKeys = new Set(days.map(dateKey));
+        const chatSessions = await api
+          .get("/sessions")
+          .then((response) => Array.isArray(response.data) ? response.data as ChatSession[] : [])
+          .catch((error) => {
+            if (isUnauthorizedError(error)) throw error;
+            console.error("Failed to load chat sessions for progress", error);
+            return [];
+          });
+        const matchingChatSessions = chatSessions.filter((session) => selectedDateKeys.has(localDateKey(session.created_at)));
+        if (matchingChatSessions.length) {
+          const messageGroups = await Promise.all(
+            matchingChatSessions.map((session) =>
+              api
+                .get(`/sessions/${session.id}/messages`)
+                .then((response) => Array.isArray(response.data) ? response.data as ChatMessage[] : [])
+                .catch((error) => {
+                  if (isUnauthorizedError(error)) throw error;
+                  console.error("Failed to load chat messages for progress", session.id, error);
+                  return [];
+                }),
+            ),
+          );
+          nextChatCorrection = messageGroups
+            .flat()
+            .filter((message) => {
+              const feedback = message.feedback;
+              return message.role === "user" && Boolean(feedback?.original && feedback.corrected_text && feedback.original !== feedback.corrected_text);
+            })
+            .map((message) => ({
+              original: message.feedback?.original || message.content,
+              better: message.feedback?.corrected_text || message.content,
+              why: message.feedback?.reason || "Use the better version in your next answer.",
+              created_at: message.created_at || "",
+            }))
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] || null;
+        }
         if (!cancelled) {
           setSelectedDaily(nextDaily);
           setSelectedResult(nextResult);
+          setSelectedChatCorrection(nextChatCorrection);
         }
       } catch (error) {
         if (isUnauthorizedError(error)) {
@@ -328,6 +402,7 @@ export default function ProgressScreen() {
           console.error("Failed to load selected progress range", error);
           setSelectedDaily(emptyDaily(selectedLabel));
           setSelectedResult(null);
+          setSelectedChatCorrection(null);
         }
       }
     };
@@ -337,7 +412,7 @@ export default function ProgressScreen() {
     return () => {
       cancelled = true;
     };
-  }, [rangeStart, selectedEnd, selectedLabel]);
+  }, [rangeStart, refreshKey, selectedEnd, selectedLabel]);
 
   const focus = selectedDaily?.main_weak_point || analysis?.daily?.main_weak_point || analysis?.focus || "No weak point yet";
   const summary = selectedDaily?.summary || analysis?.daily?.summary || analysis?.reason || "Your summary will appear after practice.";
@@ -345,9 +420,6 @@ export default function ProgressScreen() {
   const sessions = selectedDaily?.total_results ?? analysis?.daily?.total_results ?? 0;
   const words = selectedDaily?.total_words ?? analysis?.daily?.total_words ?? 0;
   const fixes = selectedDaily?.mistakes_count ?? analysis?.daily?.mistakes_count ?? 0;
-  const scoreAdvice = fixes > 0
-    ? "Practice the main correction below to raise your next score."
-    : "Keep speaking with longer answers to make this more accurate.";
   const mainMistake = selectedResult?.mistakes?.[0];
   const mainCorrection = selectedResult
     ? {
@@ -361,6 +433,16 @@ export default function ProgressScreen() {
           corrected: mainMistake?.corrected_text,
         }),
       }
+    : selectedChatCorrection
+      ? {
+          original: selectedChatCorrection.original,
+          better: selectedChatCorrection.better,
+          why: selectedChatCorrection.why,
+          category: correctionCategory({
+            original: selectedChatCorrection.original,
+            corrected: selectedChatCorrection.better,
+          }),
+        }
     : null;
 
   const activeDays = useMemo(() => {
@@ -403,6 +485,18 @@ export default function ProgressScreen() {
         count: index + 1,
       }));
     }
+    if (selectedChatCorrection) {
+      return [{
+        key: "chat-correction",
+        title: correctionCategory({
+          original: selectedChatCorrection.original,
+          corrected: selectedChatCorrection.better,
+        }),
+        example: compactExample(selectedChatCorrection.original, selectedChatCorrection.better),
+        reason: selectedChatCorrection.why,
+        count: 1,
+      }];
+    }
     if (!analysis?.top_mistakes?.length) {
       return [];
     }
@@ -420,7 +514,7 @@ export default function ProgressScreen() {
         count: mistake.recent_count || mistake.total_count || index + 1,
       };
     });
-  }, [analysis, selectedResult]);
+  }, [analysis, selectedChatCorrection, selectedResult]);
 
   const mainFix = weakPoints[0];
 
@@ -462,21 +556,25 @@ export default function ProgressScreen() {
         <View style={styles.sectionRow}>
           <View>
             <Text variant="title">Progress</Text>
-            <Text variant="caption">{selectedLabel}</Text>
+            <Text variant="caption">Your speaking at a glance</Text>
           </View>
           <View style={styles.streakPill}>
             <Ionicons name="flame" size={15} color={colors.orange} />
             <Text style={styles.streakText}>{analysis?.activity?.current_streak ?? 0}</Text>
+            <Text variant="caption">days</Text>
           </View>
         </View>
 
-        <View style={styles.calendarHeader}>
+        <Pressable onPress={() => setCalendarOpen((value) => !value)} style={styles.calendarHeader}>
           <View>
-            <Text variant="subtitle">{monthLabel}</Text>
-            <Text variant="caption">Selected: {selectedLabel}</Text>
+            <Text style={styles.periodLabel}>{selectedLabel}</Text>
+            <Text variant="caption">{summaryTitleLabel}</Text>
           </View>
-          <Ionicons name="calendar-clear-outline" size={21} color={colors.primary} />
-        </View>
+          <View style={styles.calendarAction}>
+            <Ionicons name="calendar-clear-outline" size={19} color={colors.primary} />
+            <Ionicons name={calendarOpen ? "chevron-up" : "chevron-down"} size={17} color={colors.muted} />
+          </View>
+        </Pressable>
         <View style={styles.rangeModes}>
           {[
             { key: "day", label: "Day" },
@@ -511,59 +609,61 @@ export default function ProgressScreen() {
             );
           })}
         </View>
-        <View style={styles.weekNames}>
-          {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
-            <Text key={`${day}-${index}`} variant="caption" style={styles.weekName}>{day}</Text>
-          ))}
-        </View>
-        <View style={styles.grid}>
-          {calendarDays.map((item) => {
-            const inRange = item.day >= rangeStart && item.day <= selectedEnd;
-            const isStart = item.day === rangeStart;
-            const isEnd = item.day === selectedEnd && isRange;
-            return (
-              <Pressable
-                key={item.day}
-                onPress={() => selectCalendarDay(item.day)}
-                style={[
-                  styles.day,
-                  item.done && styles.dayDone,
-                  item.today && styles.dayToday,
-                  inRange && styles.dayInRange,
-                  isStart && styles.dayRangeStart,
-                  isEnd && styles.dayRangeEnd,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.dayText,
-                    item.done && styles.dayTextDone,
-                    item.today && styles.dayTextToday,
-                    inRange && styles.dayTextInRange,
-                    (isStart || isEnd) && styles.dayTextActive,
-                  ]}
-                >
-                  {item.day}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {calendarOpen && (
+          <View style={styles.calendarBody}>
+            <Text variant="subtitle">{monthLabel}</Text>
+            <View style={styles.weekNames}>
+              {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
+                <Text key={`${day}-${index}`} variant="caption" style={styles.weekName}>{day}</Text>
+              ))}
+            </View>
+            <View style={styles.grid}>
+              {calendarDays.map((item) => {
+                const inRange = item.day >= rangeStart && item.day <= selectedEnd;
+                const isStart = item.day === rangeStart;
+                const isEnd = item.day === selectedEnd && isRange;
+                return (
+                  <Pressable
+                    key={item.day}
+                    onPress={() => selectCalendarDay(item.day)}
+                    style={[
+                      styles.day,
+                      item.done && styles.dayDone,
+                      item.today && styles.dayToday,
+                      inRange && styles.dayInRange,
+                      isStart && styles.dayRangeStart,
+                      isEnd && styles.dayRangeEnd,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dayText,
+                        item.done && styles.dayTextDone,
+                        item.today && styles.dayTextToday,
+                        inRange && styles.dayTextInRange,
+                        (isStart || isEnd) && styles.dayTextActive,
+                      ]}
+                    >
+                      {item.day}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
       </Card>
 
       <Card style={styles.scoreCard}>
         <View style={styles.scoreTop}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text variant="eyebrow">{scoreHeading}</Text>
-            <Text style={styles.scoreTone}>{scoreTone(score)}</Text>
-            <Text variant="caption" style={styles.scoreSummary}>
-              You practiced {sessions} {plural(sessions, "answer")} and used {words} {plural(words, "word")}.
-            </Text>
-            <Text variant="caption" style={styles.scoreSummary}>{scoreAdvice}</Text>
-          </View>
           <View style={styles.scoreCircle}>
             <Text style={styles.scoreValue}>{score}</Text>
-            <Text style={styles.scoreLabel}>/ 100</Text>
+            <Text style={styles.scoreLabel}>score</Text>
+          </View>
+          <View style={styles.scoreCopy}>
+            <Text variant="eyebrow">{scoreHeading}</Text>
+            <Text style={styles.scoreTone}>{scoreTone(score)}</Text>
+            <Text variant="caption" numberOfLines={1}>{selectedLabel}</Text>
           </View>
         </View>
 
@@ -576,55 +676,65 @@ export default function ProgressScreen() {
 
       <Card style={styles.correctionCard}>
         <View style={styles.sectionRow}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text variant="subtitle">Main correction</Text>
-            <Text variant="caption">{mainCorrection?.category || summaryTitleLabel}</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}>
+              <Ionicons name="sparkles" size={15} color={colors.primary} />
+            </View>
+            <View>
+              <Text variant="subtitle">Focus</Text>
+              <Text variant="caption">{mainCorrection?.category || focus}</Text>
+            </View>
           </View>
-          <Ionicons name="create-outline" size={19} color={colors.primary} />
         </View>
 
         {mainCorrection && mainCorrection.original !== mainCorrection.better ? (
           <>
-            <CorrectionBlock label="Original" text={mainCorrection.original} tone="wrong" />
-            <CorrectionBlock label="Better" text={mainCorrection.better} tone="correct" />
-            <View style={styles.whyBox}>
-              <Text style={styles.blockLabel}>Why?</Text>
-              <Text style={styles.whyText}>{mainCorrection.why}</Text>
+            <CorrectionBlock label="You said" text={mainCorrection.original} tone="wrong" />
+            <View style={styles.correctionArrow}>
+              <Ionicons name="arrow-down" size={14} color={colors.primary} />
             </View>
+            <CorrectionBlock label="Say this" text={mainCorrection.better} tone="correct" />
+            <Text variant="caption" numberOfLines={2}>{mainCorrection.why}</Text>
             <Pressable onPress={() => openQuickFix(mainFix)} style={styles.practiceButton}>
-              <Text style={styles.practiceText}>Practice this mistake</Text>
+              <Text style={styles.practiceText}>Practice</Text>
               <Ionicons name="arrow-forward" size={16} color="#fff" />
             </Pressable>
           </>
         ) : (
           <View style={styles.emptyWeak}>
-            <Text style={styles.weakTitle}>{focus}</Text>
-            <Text variant="caption">{summary}</Text>
+            <Ionicons name="checkmark-circle" size={20} color={colors.green} />
+            <View style={styles.emptyCopy}>
+              <Text style={styles.weakTitle}>{focus}</Text>
+              <Text variant="caption" numberOfLines={2}>{summary}</Text>
+            </View>
           </View>
         )}
       </Card>
 
       <Card>
         <View style={styles.sectionRow}>
-          <Text variant="subtitle">Weak points</Text>
-          <Text style={styles.sectionLink}>Memory</Text>
+          <Text variant="subtitle">Needs practice</Text>
+          <Text variant="caption">{weakPoints.length ? `Top ${Math.min(weakPoints.length, 2)}` : "All clear"}</Text>
         </View>
         <View style={styles.weakList}>
-          {weakPoints.length > 0 ? weakPoints.map((mistake) => (
+          {weakPoints.length > 0 ? weakPoints.slice(0, 2).map((mistake) => (
             <Pressable key={mistake.key} onPress={() => openQuickFix(mistake)} style={styles.weakRow}>
               <View style={styles.weakCount}>
                 <Text style={styles.weakCountText}>{mistake.count}</Text>
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.weakTitle} numberOfLines={1}>{mistake.title}</Text>
-                <Text variant="caption" numberOfLines={2}>{mistake.example || mistake.reason}</Text>
+                <Text variant="caption" numberOfLines={1}>{mistake.example || mistake.reason}</Text>
               </View>
               <Ionicons name="chevron-forward" size={17} color={colors.muted} />
             </Pressable>
           )) : (
             <View style={styles.emptyWeak}>
-              <Text style={styles.weakTitle}>No weak points yet</Text>
-              <Text variant="caption">Practice answers will build your memory automatically.</Text>
+              <Ionicons name="checkmark-circle" size={20} color={colors.green} />
+              <View style={styles.emptyCopy}>
+                <Text style={styles.weakTitle}>Nothing to review</Text>
+                <Text variant="caption">Your next correction will appear here.</Text>
+              </View>
             </View>
           )}
         </View>
@@ -684,7 +794,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   calendarCard: {
-    gap: 14,
+    gap: 10,
   },
   calendarHeader: {
     flexDirection: "row",
@@ -732,10 +842,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  sectionLink: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "900",
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sectionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primaryLight,
   },
   weekNames: {
     flexDirection: "row",
@@ -806,9 +924,12 @@ const styles = StyleSheet.create({
   },
   scoreTop: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     gap: 14,
+  },
+  scoreCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   scoreTone: {
     marginTop: 4,
@@ -817,18 +938,13 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: "900",
   },
-  scoreSummary: {
-    marginTop: 4,
-  },
   scoreCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
+    width: 76,
+    height: 76,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.primaryLight,
   },
   scoreValue: {
     color: colors.text,
@@ -848,7 +964,7 @@ const styles = StyleSheet.create({
   },
   metric: {
     flex: 1,
-    minHeight: 70,
+    minHeight: 62,
     borderRadius: 14,
     backgroundColor: "#fafafe",
     alignItems: "center",
@@ -888,6 +1004,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#fafafe",
     padding: 12,
   },
+  calendarAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  calendarBody: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  periodLabel: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
   blockLabel: {
     color: colors.muted,
     fontSize: 10,
@@ -907,16 +1038,10 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "900",
   },
-  whyBox: {
-    gap: 5,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-    paddingLeft: 12,
-  },
-  whyText: {
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 19,
+  correctionArrow: {
+    height: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   practiceButton: {
     minHeight: 46,
@@ -937,7 +1062,7 @@ const styles = StyleSheet.create({
   },
   weakRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 10,
     borderRadius: 16,
     backgroundColor: "#fafafe",
@@ -960,9 +1085,16 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   emptyWeak: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 16,
     backgroundColor: "#fafafe",
     padding: 14,
-    gap: 4,
+    gap: 10,
+  },
+  emptyCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
 });
