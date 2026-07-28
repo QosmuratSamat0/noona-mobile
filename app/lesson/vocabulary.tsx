@@ -17,12 +17,7 @@ type Task = {
   explanation: string;
 };
 
-const tasks: Task[] = [
-  { type: "choice", word: "reliable", prompt: "Which meaning is correct?", options: ["Can be trusted", "Very expensive", "Hard to understand"], answer: "Can be trusted", explanation: "Reliable describes someone or something you can trust." },
-  { type: "choice", word: "clear", prompt: "The instructions were ___, so everyone understood them.", options: ["clear", "heavy", "quiet"], answer: "clear", explanation: "Clear instructions are easy to understand." },
-  { type: "choice", word: "exhausted", prompt: "Choose a stronger alternative to 'very tired'.", options: ["exhausted", "careful", "ordinary"], answer: "exhausted", explanation: "Exhausted means extremely tired." },
-  { type: "write", word: "improve", prompt: "Write one natural sentence using 'improve'.", explanation: "Using a word in your own sentence helps you remember it." },
-];
+// tasks will be fetched from the backend dynamically
 
 const countWords = (value: string) => value.trim().split(/\s+/).filter(Boolean).length;
 
@@ -36,16 +31,28 @@ export default function VocabularyDrillScreen() {
   const [saving, setSaving] = useState(false);
   const [complete, setComplete] = useState(false);
 
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+
   const task = tasks[index];
-  const isWriting = task.type === "write";
-  const writingValid = isWriting && countWords(sentence) >= 4 && sentence.toLowerCase().includes(task.word);
-  const answerCorrect = isWriting ? writingValid : selected === task.answer;
-  const score = useMemo(() => Math.round((correctCount / tasks.length) * 100), [correctCount]);
+  const isWriting = task?.type === "write";
+  const writingValid = isWriting && countWords(sentence) >= 4 && sentence.toLowerCase().includes(task?.word?.toLowerCase() || "");
+  const answerCorrect = isWriting ? writingValid : selected === task?.answer;
+  const score = useMemo(() => tasks.length > 0 ? Math.round((correctCount / tasks.length) * 100) : 0, [correctCount, tasks.length]);
 
   useEffect(() => {
     api.post("/daily-sessions/start")
       .then((response) => setSessionID(response.data?.session_id || ""))
       .catch(() => setSessionID(""));
+      
+    api.get("/vocabulary/drills/today")
+      .then((res) => {
+        setTasks(res.data || []);
+        setLoadingTasks(false);
+      })
+      .catch(() => {
+        setLoadingTasks(false);
+      });
   }, []);
 
   const goBack = () => router.canGoBack() ? router.back() : router.replace("/(tabs)/lessons");
@@ -102,6 +109,30 @@ export default function VocabularyDrillScreen() {
         </View>
         <Button onPress={() => router.replace("/(tabs)/progress")}>View progress</Button>
         <Button variant="outline" onPress={restart}>Practice again</Button>
+      </Screen>
+    );
+  }
+
+  if (loadingTasks) {
+    return (
+      <Screen>
+        <Header title="Vocabulary drill" onBack={goBack} close />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={{ marginTop: 10, color: colors.muted }}>Generating your daily drill...</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (tasks.length === 0) {
+    return (
+      <Screen>
+        <Header title="Vocabulary drill" onBack={goBack} close />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Text>Failed to load today's drill. Please try again later.</Text>
+          <Button onPress={goBack} style={{ marginTop: 20 }}>Go back</Button>
+        </View>
       </Screen>
     );
   }
