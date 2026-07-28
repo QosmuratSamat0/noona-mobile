@@ -79,7 +79,9 @@ export const removeToken = async () => {
   await removeTokens();
 };
 
-export const refreshTokens = async () => {
+let refreshTokenPromise: Promise<string | null> | null = null;
+
+const performTokenRefresh = async () => {
   const refreshToken = await getRefreshToken();
   if (!refreshToken) {
     return null;
@@ -97,6 +99,16 @@ export const refreshTokens = async () => {
 
   await setTokens(accessToken, nextRefreshToken || refreshToken);
   return accessToken;
+};
+
+export const refreshTokens = async () => {
+  if (!refreshTokenPromise) {
+    refreshTokenPromise = performTokenRefresh().finally(() => {
+      refreshTokenPromise = null;
+    });
+  }
+
+  return refreshTokenPromise;
 };
 
 export const getValidToken = async () => {
@@ -154,3 +166,4 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
