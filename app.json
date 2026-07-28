@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Noona Mobile",
+    "slug": "noona-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "noona-mobile",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "kz.noona.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-localization"
+    ]
+  }
+}
+
