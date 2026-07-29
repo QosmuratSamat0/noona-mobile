@@ -57,12 +57,21 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload Gradle reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: gradle-reports
+          path: android/build/reports
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Prepare APK artifact
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/Noona.apk
+          cp android/app/build/outputs/apk/release/app-release.apk dist/Noona.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5
@@ -77,5 +86,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/Noona.apk
+
 
 
